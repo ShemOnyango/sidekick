@@ -10,7 +10,7 @@ import {
   Modal,
   ScrollView,
 } from 'react-native';
-import MapboxGL from '@rnmapbox/maps';
+// import MapboxGL from '@rnmapbox/maps'; // DISABLED
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useSelector, useDispatch } from 'react-redux';
 import Slider from '@react-native-community/slider';
@@ -230,103 +230,15 @@ const AdvancedMap = ({
     </Modal>
   );
 
+  // TEMPORARILY DISABLED - Mapbox removed
   return (
     <View style={styles.container}>
-      <MapboxGL.MapView
-        ref={mapRef}
-        style={styles.map}
-        styleURL={mapStyle}
-        onRegionDidChange={onRegionChange}
-        localizeLabels={true}
-        attributionEnabled={true}
-        logoEnabled={true}
-        compassEnabled={true}
-      >
-        <MapboxGL.Camera
-          ref={cameraRef}
-          zoomLevel={zoomLevel}
-          centerCoordinate={[region.longitude, region.latitude]}
-          animationMode="flyTo"
-          animationDuration={1000}
-        />
-        
-        {/* User Location */}
-        {showUserLocation && currentPosition && (
-          <MapboxGL.PointAnnotation
-            id="user-location"
-            coordinate={[currentPosition.longitude, currentPosition.latitude]}
-          >
-            <View style={styles.userMarker}>
-              <Icon name="account" size={24} color="#FFD100" />
-            </View>
-          </MapboxGL.PointAnnotation>
-        )}
-        
-        {/* Custom Layers */}
-        {customLayers.map((layer, index) => (
-          <MapboxGL.ShapeSource
-            key={`layer-${index}`}
-            id={layer.id}
-            shape={layer.geojson}
-          >
-            <MapboxGL.LineLayer
-              id={`${layer.id}-line`}
-              style={layer.style}
-            />
-          </MapboxGL.ShapeSource>
-        ))}
-      </MapboxGL.MapView>
-
-      {/* Map Controls */}
-      {showControls && (
-        <View style={styles.controlsContainer}>
-          {/* Zoom Controls */}
-          <View style={styles.zoomControls}>
-            <TouchableOpacity
-              style={styles.controlButton}
-              onPress={() => setZoomLevel(prev => Math.min(prev + 1, 20))}
-            >
-              <Icon name="plus" size={20} color="#000" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.controlButton}
-              onPress={() => setZoomLevel(prev => Math.max(prev - 1, 0))}
-            >
-              <Icon name="minus" size={20} color="#000" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Layer Controls */}
-          <TouchableOpacity
-            style={styles.controlButton}
-            onPress={() => setShowLayerPanel(true)}
-          >
-            <Icon name="layers" size={24} color="#000" />
-          </TouchableOpacity>
-
-          {/* Download Controls */}
-          <TouchableOpacity
-            style={styles.controlButton}
-            onPress={() => setShowDownloadPanel(true)}
-          >
-            <Icon name="download" size={24} color="#000" />
-          </TouchableOpacity>
-
-          {/* Compass Reset */}
-          <TouchableOpacity
-            style={styles.controlButton}
-            onPress={() => setBearing(0)}
-          >
-            <Icon name="compass" size={24} color="#000" />
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Layer Panel */}
-      {renderLayerPanel()}
-      
-      {/* Download Panel */}
-      {renderDownloadPanel()}
+      <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#f0f0f0' }]}>
+        <Text style={{ fontSize: 18, color: '#666', textAlign: 'center', padding: 20 }}>
+          Map feature temporarily disabled{'\n'}
+          (Mapbox dependencies removed for testing)
+        </Text>
+      </View>
     </View>
   );
 };

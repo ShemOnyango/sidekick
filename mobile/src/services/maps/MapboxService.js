@@ -1,8 +1,8 @@
 // mobile/src/services/maps/MapboxService.js
-import MapboxGL from '@rnmapbox/maps';
+// import MapboxGL from '@rnmapbox/maps'; // DISABLED
 import { Platform } from 'react-native';
-import RNFS from 'react-native-fs';
-import { unzip } from 'react-native-zip-archive';
+// import RNFS from 'react-native-fs'; // DISABLED
+// import { unzip } from 'react-native-zip-archive'; // DISABLED
 import databaseService from '../database/DatabaseService';
 import { CONFIG } from '../../constants/config';
 import apiService from '../api/ApiService';
