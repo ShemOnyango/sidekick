@@ -1,0 +1,88 @@
+{
+  "findings": [
+    {
+      "file": "src\\components\\maps\\AdvancedMap.jsx",
+      "line": 143,
+      "code": "visible={showLayerPanel}",
+      "issue": "Boolean prop might receive untyped value: visible={showLayerPanel}",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "src\\components\\maps\\AdvancedMap.jsx",
+      "line": 182,
+      "code": "visible={showDownloadPanel}",
+      "issue": "Boolean prop might receive untyped value: visible={showDownloadPanel}",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "src\\screens\\Authority\\AuthorityFormScreen.js",
+      "line": 409,
+      "code": "style={[styles.submitButton, isCreating && styles.submitButtonDisabled]}",
+      "issue": "Boolean prop might receive untyped value: style={[styles.submitButton, isCreating && styles.submitButtonDisabled]}",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "src\\screens\\PinCaptureScreen.js",
+      "line": 105,
+      "code": "<TextInput value={notes} onChangeText={setNotes} placeholder=\"Notes\" style={[styles.input, { height: 80 }]} multiline />",
+      "issue": "Boolean prop might receive untyped value: value={notes}",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "src\\screens\\PinCaptureScreen.js",
+      "line": 117,
+      "code": "<Button title={saving ? 'Saving...' : 'Save Pin'} onPress={savePin} disabled={Boolean(saving)} />",
+      "issue": "Boolean prop might receive untyped value: title={saving ? 'Saving...' : 'Save Pin'}",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "src\\screens\\Pins\\PinDropScreen.js",
+      "line": 369,
+      "code": "style={[styles.saveButton, loading && styles.saveButtonDisabled]}",
+      "issue": "Boolean prop might receive untyped value: style={[styles.saveButton, loading && styles.saveButtonDisabled]}",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "src\\screens\\Summary\\TripSummaryScreen.js",
+      "line": 419,
+      "code": "style={[styles.exportButton, exporting && styles.exportButtonDisabled]}",
+      "issue": "Boolean prop might receive untyped value: style={[styles.exportButton, exporting && styles.exportButtonDisabled]}",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "src\\screens\\Summary\\TripSummaryScreen.js",
+      "line": 428,
+      "code": "style={[styles.exportButton, exporting && styles.exportButtonDisabled]}",
+      "issue": "Boolean prop might receive untyped value: style={[styles.exportButton, exporting && styles.exportButtonDisabled]}",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "src\\screens\\Summary\\TripSummaryScreen.js",
+      "line": 437,
+      "code": "style={[styles.exportButton, exporting && styles.exportButtonDisabled]}",
+      "issue": "Boolean prop might receive untyped value: style={[styles.exportButton, exporting && styles.exportButtonDisabled]}",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "src\\store\\slices\\settingsSlice.js",
+      "line": 49,
+      "code": "const { notificationsEnabled, soundEnabled, vibrationEnabled, proximityAlertsEnabled } = action.payload;",
+      "issue": "action.payload used without boolean conversion",
+      "severity": "HIGH"
+    },
+    {
+      "file": "src\\store\\slices\\settingsSlice.js",
+      "line": 59,
+      "code": "const { locationAlways, backgroundLocationEnabled, gpsUpdateInterval, highAccuracyGPS } = action.payload;",
+      "issue": "action.payload used without boolean conversion",
+      "severity": "HIGH"
+    },
+    {
+      "file": "src\\store\\slices\\settingsSlice.js",
+      "line": 74,
+      "code": "const { offlineMode, autoDownloadEnabled, wifiOnlyDownloads } = action.payload;",
+      "issue": "action.payload used without boolean conversion",
+      "severity": "HIGH"
+    }
+  ]
+}

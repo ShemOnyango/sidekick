@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-02-02T11:40:47.171Z",
+  "filesScanned": 61,
+  "totalIssues": 4,
+  "findings": [
+    {
+      "file": "scan-boolean-errors.js",
+      "line": 413,
+      "code": "console.log(`   ${colors.yellow}❌ enabled=\"true\"${colors.reset}`);",
+      "issue": "Boolean prop \"enabled\" has string value",
+      "severity": "HIGH"
+    },
+    {
+      "file": "scan-boolean-errors.js",
+      "line": 414,
+      "code": "console.log(`   ${colors.green}✓ enabled={true}${colors.reset}\\n`);",
+      "issue": "Boolean prop \"enabled\" might receive string value from dynamic source",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "scan-boolean-errors.js",
+      "line": 421,
+      "code": "console.log(`   ${colors.yellow}❌ <Component enabled={response.data.enabled} />${colors.reset}`);",
+      "issue": "Boolean prop \"enabled\" might receive string value from dynamic source",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "scan-boolean-errors.js",
+      "line": 422,
+      "code": "console.log(`   ${colors.green}✓ <Component enabled={Boolean(response.data.enabled)} />${colors.reset}\\n`);",
+      "issue": "Boolean prop \"enabled\" might receive string value from dynamic source",
+      "severity": "MEDIUM"
+    }
+  ]
+}

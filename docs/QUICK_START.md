@@ -1,0 +1,142 @@
+# Quick Start Guide - Herzog Rail Authority System
+
+## Prerequisites
+- Node.js 18+
+- SQL Server 2019+
+- Git
+
+## 1. Clone and Setup
+
+```bash
+# Clone the repository (when available)
+git clone <repository-url>
+cd herzog
+
+# Or create from scratch using our structure
+mkdir herzog
+cd herzog
+# Copy all the files from our setup
+
+
+## Database Setup
+
+# 1. Install SQL Server (if not installed)
+# 2. Create database
+sqlcmd -S localhost -U sa -P YourStrong!Passw0rd
+CREATE DATABASE HerzogRailAuthority;
+GO
+EXIT
+
+# 3. Run migrations
+cd backend
+npm install
+npm run db:migrate
+
+# Backend Setup
+cd backend
+
+# Install dependencies
+npm install
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your database credentials
+
+# Start development server
+npm run dev
+
+# Server runs at http://localhost:5000
+
+# Admin Portal Setup
+cd admin-portal
+
+# Install dependencies
+npm install
+
+# Configure environment
+cp .env.example .env
+
+# Start development server
+npm start
+
+# Portal runs at http://localhost:3000
+
+## **Testing the Setup**
+# Test API health
+curl http://localhost:5000/api/health
+
+# Test basic API
+curl http://localhost:5000/api
+
+# Login as admin
+curl -X POST http://localhost:5000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}'
+
+
+
+
+## **Step 8: Start the Development Environment**
+
+```bash
+# Open two terminal windows
+
+# Terminal 1: Start the backend
+cd herzog/backend
+npm install
+npm run db:migrate
+npm run dev
+
+# Terminal 2: Start the admin portal
+cd herzog/admin-portal
+npm install
+npm start
+
+
+# Open VS Code with workspace
+code herzog-rail-authority.code-workspace
+
+# Or open individual folders
+code backend/
+code admin-portal/
+
+
+# Run all migrations
+npm run db:migrate
+
+# Run seed data
+npm run db:seed
+
+# Validate the database
+node scripts/validate-database.js
+
+# Testing the backend
+# 1. Start the backend
+cd backend
+npm run dev
+
+# 2. Test API with curl or Postman
+
+# Login as admin
+curl -X POST http://localhost:5000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}'
+
+# Get active authorities
+curl -X GET http://localhost:5000/api/authorities/active \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# Create authority (Ryan Medlin example)
+curl -X POST http://localhost:5000/api/authorities \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "authorityType": "Track_Authority",
+    "subdivisionId": 1,
+    "beginMP": 1.0,
+    "endMP": 7.0,
+    "trackType": "Main",
+    "trackNumber": "1",
+    "employeeNameDisplay": "Ryan Medlin",
+    "employeeContactDisplay": "555-987-6543"
+  }'

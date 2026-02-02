@@ -1,0 +1,9 @@
+{
+  "name": "boolean-type-checker",
+  "scripts": {
+    "scan:boolean": "node scan-boolean-errors.js",
+    "scan:redux": "node scan-redux-state-types.js",
+    "scan:all": "npm run scan:boolean && npm run scan:redux",
+    "precommit": "npm run scan:redux"
+  }
+}

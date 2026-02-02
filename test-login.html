@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Login</title>
+</head>
+<body>
+    <h1>Test Admin Login</h1>
+    <button onclick="clearStorage()">Clear LocalStorage</button>
+    <button onclick="testLogin()">Test Login</button>
+    <button onclick="checkStorage()">Check Storage</button>
+    <pre id="output"></pre>
+
+    <script>
+        const output = document.getElementById('output');
+        
+        function clearStorage() {
+            localStorage.clear();
+            output.textContent = 'LocalStorage cleared';
+        }
+        
+        function checkStorage() {
+            const token = localStorage.getItem('admin_token');
+            output.textContent = 'Current token:\n' + token;
+        }
+        
+        async function testLogin() {
+            try {
+                const response = await fetch('http://localhost:5000/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: 'admin',
+                        password: 'admin123'
+                    })
+                });
+                
+                const data = await response.json();
+                output.textContent = 'Login Response:\n' + JSON.stringify(data, null, 2);
+                
+                if (data.success && data.data.token) {
+                    localStorage.setItem('admin_token', data.data.token);
+                    output.textContent += '\n\nToken saved to localStorage';
+                    
+                    // Test if token works
+                    const testResponse = await fetch('http://localhost:5000/api/analytics/1/dashboard', {
+                        headers: {
+                            'Authorization': `Bearer ${data.data.token}`
+                        }
+                    });
+                    
+                    const testData = await testResponse.json();
+                    output.textContent += '\n\nDashboard Response:\n' + JSON.stringify(testData, null, 2);
+                }
+            } catch (error) {
+                output.textContent = 'Error: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>

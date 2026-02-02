@@ -1,0 +1,164 @@
+const GPSService = require('../services/gpsService');
+const { logger } = require('../config/logger');
+const { broadcastCurrentLocation } = require('../config/socket');
+
+class GPSController {
+  async updatePosition(req, res) {
+    try {
+      const user = req.user;
+      const gpsData = req.body;
+      
+      // Add user ID to GPS data
+      gpsData.userId = user.User_ID;
+      
+      // Process GPS update
+      const result = await GPSService.processGPSUpdate(gpsData);
+      
+      // Broadcast current location with milepost to user (for follow-me mode)
+      if (result && result.milepost) {
+        broadcastCurrentLocation(user.User_ID, {
+          latitude: gpsData.latitude,
+          longitude: gpsData.longitude,
+          accuracy: gpsData.accuracy,
+          heading: gpsData.heading,
+          speed: gpsData.speed,
+          milepost: result.milepost.milepost,
+          trackType: result.milepost.trackType,
+          trackNumber: result.milepost.trackNumber,
+          confidence: result.milepost.confidence,
+          distanceFromTrack: result.milepost.distanceFromTrack,
+          timestamp: new Date()
+        });
+      }
+      
+      res.json({
+        success: true,
+        message: 'GPS position updated',
+        data: result
+      });
+    } catch (error) {
+      logger.error('Update GPS position error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to update GPS position'
+      });
+    }
+  }
+  
+  async getMyPosition(req, res) {
+    try {
+      const user = req.user;
+      const position = await GPSService.getUserPosition(user.User_ID);
+      
+      if (!position) {
+        return res.status(404).json({
+          success: false,
+          error: 'No recent position found'
+        });
+      }
+      
+      res.json({
+        success: true,
+        data: {
+          position,
+          timestamp: new Date(position.timestamp).toISOString()
+        }
+      });
+    } catch (error) {
+      logger.error('Get my position error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get position'
+      });
+    }
+  }
+  
+  async getAllActivePositions(req, res) {
+    try {
+      const user = req.user;
+      
+      // Only supervisors and administrators can see all positions
+      if (user.Role !== 'Supervisor' && user.Role !== 'Administrator') {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied'
+        });
+      }
+      
+      const positions = await GPSService.getAllActivePositions();
+      
+      // Get user details for each position
+      const positionsWithDetails = await this.enrichPositionsWithUserDetails(positions);
+      
+      res.json({
+        success: true,
+        data: {
+          positions: positionsWithDetails,
+          count: positionsWithDetails.length
+        }
+      });
+    } catch (error) {
+      logger.error('Get all active positions error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get active positions'
+      });
+    }
+  }
+  
+  async enrichPositionsWithUserDetails(positions) {
+    const { getConnection, sql } = require('../config/database');
+    const pool = getConnection();
+    
+    const enrichedPositions = [];
+    
+    for (const position of positions) {
+      try {
+        const query = `
+          SELECT 
+            u.User_ID,
+            u.Employee_Name,
+            u.Employee_Contact,
+            u.Role,
+            a.Authority_ID,
+            a.Track_Type,
+            a.Track_Number,
+            s.Subdivision_Code
+          FROM Users u
+          LEFT JOIN Authorities a ON u.User_ID = a.User_ID AND a.Is_Active = 1
+          LEFT JOIN Subdivisions s ON a.Subdivision_ID = s.Subdivision_ID
+          WHERE u.User_ID = @userId
+        `;
+        
+        const result = await pool.request()
+          .input('userId', sql.Int, position.userId)
+          .query(query);
+        
+        if (result.recordset.length > 0) {
+          enrichedPositions.push({
+            ...position,
+            user: {
+              employeeName: result.recordset[0].Employee_Name,
+              employeeContact: result.recordset[0].Employee_Contact,
+              role: result.recordset[0].Role
+            },
+            authority: result.recordset[0].Authority_ID ? {
+              authorityId: result.recordset[0].Authority_ID,
+              trackType: result.recordset[0].Track_Type,
+              trackNumber: result.recordset[0].Track_Number,
+              subdivision: result.recordset[0].Subdivision_Code
+            } : null
+          });
+        }
+      } catch (error) {
+        logger.error('Enrich position error:', error);
+        // Still include basic position data
+        enrichedPositions.push(position);
+      }
+    }
+    
+    return enrichedPositions;
+  }
+}
+
+module.exports = new GPSController();

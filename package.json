@@ -1,0 +1,20 @@
+{
+  "name": "herzog-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build:backend": "cd backend && npm run build",
+    "build:admin": "cd admin-portal && npm run build",
+    "build:mobile:android": "cd mobile && npm run android:build",
+    "build:mobile:ios": "cd mobile && npm run ios:build",
+    "deploy:backend": "pm2 start ecosystem.config.js",
+    "migrate:prod": "cd backend && npm run db:migrate:prod",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
+  },
+  "dependencies": {
+    "expo": "^54.0.32",
+    "react": "19.1.0",
+    "react-native": "0.81.5"
+  }
+}

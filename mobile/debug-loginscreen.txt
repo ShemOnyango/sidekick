@@ -1,0 +1,15 @@
+// Add this to the TOP of LoginScreen.js right after imports
+// to debug what props are being passed
+
+const LoginScreen = ({ navigation }) => {
+  console.log('=== LoginScreen Props Debug ===');
+  console.log('navigation type:', typeof navigation);
+  console.log('navigation keys:', Object.keys(navigation));
+  
+  // Check all navigation options
+  if (navigation?.getState) {
+    const state = navigation.getState();
+    console.log('Navigation state:', JSON.stringify(state, null, 2));
+  }
+  
+  // ... rest of component
