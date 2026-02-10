@@ -1,6 +1,6 @@
 # Metro Link Data Import Guide
 
-This guide explains how to import Metro Link infrastructure data into the Herzog Rail Authority system.
+This guide explains how to import Metro Link infrastructure data into the Sidekick system.
 
 ## Overview
 

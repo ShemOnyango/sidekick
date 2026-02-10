@@ -20,7 +20,13 @@ import {
   Alert,
   CircularProgress,
   Menu,
-  MenuItem
+  MenuItem,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Divider
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -29,15 +35,13 @@ import {
   CheckCircle as CheckCircleIcon,
   Warning as WarningIcon,
   Error as ErrorIcon,
-  Map as MapIcon
+  Map as MapIcon,
+  PushPin as PushPinIcon,
+  Close as CloseIcon
 } from '@mui/icons-material';
-import { useSelector } from 'react-redux';
 import api from '../../services/api';
 
 const ActiveAuthorities = () => {
-  const { user } = useSelector((state) => state.auth);
-  const agencyId = user?.agencyId;
-
   const [authorities, setAuthorities] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -52,6 +56,9 @@ const ActiveAuthorities = () => {
   });
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedAuthority, setSelectedAuthority] = useState(null);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [authorityPins, setAuthorityPins] = useState([]);
+  const [loadingPins, setLoadingPins] = useState(false);
 
   useEffect(() => {
     fetchAuthorities();
@@ -97,11 +104,6 @@ const ActiveAuthorities = () => {
     }
   };
 
-  const fetchStats = async () => {
-    // Stats are now calculated from the authorities data in fetchAuthorities
-    // This function can be removed or used for additional stats if needed
-  };
-
   const handleChangePage = (event, newPage) => {
     setPage(newPage);
   };
@@ -122,15 +124,46 @@ const ActiveAuthorities = () => {
   };
 
   const handleViewOnMap = () => {
-    // Navigate to map view with authority highlighted
-    console.log('View on map:', selectedAuthority);
+    if (selectedAuthority) {
+      // Open a new window/tab with the mobile app map view focused on this authority
+      // For now, we'll show an alert with the authority details
+      // TODO: Implement a proper map view in admin portal or deep link to mobile app
+      alert(`Authority Details:\n\nSubdivision: ${selectedAuthority.Subdivision_Name}\nTrack: ${selectedAuthority.Track_Type} ${selectedAuthority.Track_Number}\nRange: MP ${selectedAuthority.Begin_MP} - MP ${selectedAuthority.End_MP}\n\nMap view feature coming soon!`);
+    }
     handleMenuClose();
   };
 
-  const handleViewDetails = () => {
-    // Navigate to authority details
-    console.log('View details:', selectedAuthority);
+  const fetchAuthorityPins = async (authorityId) => {
+    setLoadingPins(true);
+    try {
+      const response = await api.get(`/pins/authority/${authorityId}`);
+      if (response.data.success) {
+        console.log('Fetched pins:', response.data.data);
+        setAuthorityPins(response.data.data || []);
+      }
+    } catch (err) {
+      console.error('Error fetching pins:', err);
+      setAuthorityPins([]);
+    } finally {
+      setLoadingPins(false);
+    }
+  };
+
+  const handleViewDetails = (authority = null) => {
     handleMenuClose();
+    const authorityToView = authority || selectedAuthority;
+    if (authorityToView) {
+      fetchAuthorityPins(authorityToView.Authority_ID);
+      setDetailDialogOpen(true);
+      if (authority) {
+        setSelectedAuthority(authority);
+      }
+    }
+  };
+
+  const handleCloseDetailDialog = () => {
+    setDetailDialogOpen(false);
+    setAuthorityPins([]);
   };
 
   const filteredAuthorities = authorities.filter((authority) =>
@@ -145,19 +178,6 @@ const ActiveAuthorities = () => {
     page * rowsPerPage,
     page * rowsPerPage + rowsPerPage
   );
-
-  const getStatusColor = (status) => {
-    switch (status?.toLowerCase()) {
-      case 'active':
-        return 'success';
-      case 'overlap':
-        return 'error';
-      case 'warning':
-        return 'warning';
-      default:
-        return 'default';
-    }
-  };
 
   const getStatusIcon = (status) => {
     switch (status?.toLowerCase()) {
@@ -292,6 +312,7 @@ const ActiveAuthorities = () => {
                     <TableCell>Employee</TableCell>
                     <TableCell>Start Time</TableCell>
                     <TableCell>Estimated End</TableCell>
+                    <TableCell align="center">Pins</TableCell>
                     <TableCell align="center">Actions</TableCell>
                   </TableRow>
                 </TableHead>
@@ -328,6 +349,19 @@ const ActiveAuthorities = () => {
                       <TableCell>{formatDateTime(authority.Start_Time)}</TableCell>
                       <TableCell>{formatDateTime(authority.Expiration_Time)}</TableCell>
                       <TableCell align="center">
+                        <Chip
+                          icon={<PushPinIcon fontSize="small" />}
+                          label={authority.Pin_Count || 0}
+                          size="small"
+                          color={authority.Pin_Count > 0 ? 'primary' : 'default'}
+                          onClick={() => authority.Pin_Count > 0 && handleViewDetails(authority)}
+                          sx={{ 
+                            cursor: authority.Pin_Count > 0 ? 'pointer' : 'default',
+                            '&:hover': authority.Pin_Count > 0 ? { backgroundColor: 'primary.dark' } : {}
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell align="center">
                         <IconButton
                           size="small"
                           onClick={(e) => handleMenuClick(e, authority)}
@@ -340,7 +374,7 @@ const ActiveAuthorities = () => {
 
                   {paginatedAuthorities.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={9} align="center">
+                      <TableCell colSpan={10} align="center">
                         <Typography variant="body2" color="textSecondary" sx={{ py: 3 }}>
                           {searchTerm
                             ? 'No authorities match your search'
@@ -380,6 +414,155 @@ const ActiveAuthorities = () => {
           View Details
         </MenuItem>
       </Menu>
+
+      {/* Authority Detail Dialog */}
+      <Dialog
+        open={detailDialogOpen}
+        onClose={handleCloseDetailDialog}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: '#1E1E1E', color: '#FFD100', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          Authority Details
+          <IconButton onClick={handleCloseDetailDialog} sx={{ color: '#FFD100' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          {selectedAuthority && (
+            <Box>
+              {/* Authority Information */}
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="textSecondary">Subdivision</Typography>
+                  <Typography variant="body1" fontWeight="bold">
+                    {selectedAuthority.Subdivision_Name || selectedAuthority.Subdivision_Code || 'N/A'}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="textSecondary">Track</Typography>
+                  <Typography variant="body1" fontWeight="bold">
+                    {selectedAuthority.Track_Type && selectedAuthority.Track_Number
+                      ? `${selectedAuthority.Track_Type} ${selectedAuthority.Track_Number}`
+                      : 'N/A'}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="textSecondary">Milepost Range</Typography>
+                  <Typography variant="body1" fontWeight="bold">
+                    {formatMilepost(selectedAuthority.Begin_MP)} - {formatMilepost(selectedAuthority.End_MP)}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="textSecondary">Employee</Typography>
+                  <Typography variant="body1" fontWeight="bold">
+                    {selectedAuthority.Employee_Name_Display || selectedAuthority.Employee_Name || 'N/A'}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="textSecondary">Start Time</Typography>
+                  <Typography variant="body1">{formatDateTime(selectedAuthority.Start_Time)}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="textSecondary">Authority Type</Typography>
+                  <Typography variant="body1">{selectedAuthority.Authority_Type || 'N/A'}</Typography>
+                </Grid>
+              </Grid>
+
+              <Divider sx={{ my: 2 }} />
+
+              {/* Pins Section */}
+              <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
+                <PushPinIcon sx={{ mr: 1 }} />
+                Pins ({authorityPins.length})
+              </Typography>
+
+              {loadingPins ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                  <CircularProgress />
+                </Box>
+              ) : authorityPins.length === 0 ? (
+                <Alert severity="info">
+                  No pins have been dropped for this authority yet.
+                </Alert>
+              ) : (
+                <Grid container spacing={2}>
+                  {authorityPins.map((pin, index) => (
+                    <Grid item xs={12} key={pin.Pin_ID || index}>
+                      <Card sx={{ bgcolor: '#1E1E1E' }}>
+                        <CardContent>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                            <Chip
+                              label={pin.Pin_Category || 'Unknown'}
+                              size="small"
+                              sx={{ bgcolor: pin.Color || '#FFD100', fontWeight: 'bold' }}
+                            />
+                            <Typography variant="caption" color="textSecondary">
+                              {formatDateTime(pin.Created_Date)}
+                            </Typography>
+                          </Box>
+
+                          {pin.Photo_URL && (
+                            <Box sx={{ my: 2 }}>
+                              <img
+                                src={pin.Photo_URL}
+                                alt=""
+                                style={{
+                                  width: '100%',
+                                  maxHeight: '300px',
+                                  objectFit: 'contain',
+                                  borderRadius: '8px'
+                                }}
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                }}
+                              />
+                            </Box>
+                          )}
+
+                          {pin.Notes && (
+                            <Typography variant="body2" sx={{ mb: 2 }}>
+                              <strong>Notes:</strong> {pin.Notes}
+                            </Typography>
+                          )}
+
+                          <Grid container spacing={1}>
+                            <Grid item xs={6}>
+                              <Typography variant="caption" color="textSecondary">Location</Typography>
+                              <Typography variant="body2">
+                                {pin.Latitude?.toFixed(6)}, {pin.Longitude?.toFixed(6)}
+                              </Typography>
+                            </Grid>
+                            {pin.Track_Type && (
+                              <Grid item xs={6}>
+                                <Typography variant="caption" color="textSecondary">Track</Typography>
+                                <Typography variant="body2">
+                                  {pin.Track_Type} {pin.Track_Number}
+                                </Typography>
+                              </Grid>
+                            )}
+                            {pin.MP && (
+                              <Grid item xs={6}>
+                                <Typography variant="caption" color="textSecondary">Milepost</Typography>
+                                <Typography variant="body2">
+                                  MP {parseFloat(pin.MP).toFixed(2)}
+                                </Typography>
+                              </Grid>
+                            )}
+                          </Grid>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDetailDialog}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

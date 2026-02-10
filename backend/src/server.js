@@ -34,7 +34,7 @@ app.use(helmet({
 // CORS configuration
 app.use(cors({
   origin: process.env.NODE_ENV === 'development' 
-    ? ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:19006']
+    ? true // Allow all origins in development
     : process.env.CLIENT_URL,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -62,7 +62,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    service: 'Herzog Rail Authority API',
+    service: 'Sidekick API',
     version: '1.0.0'
   });
 });
@@ -103,7 +103,7 @@ const startServer = async () => {
     // Start server
     const server = app.listen(PORT, () => {
       console.log(`
-🚀 Herzog Rail Authority System
+🚀 Sidekick System
    Server running on port ${PORT}
    Environment: ${process.env.NODE_ENV}
    API URL: http://localhost:${PORT}/api

@@ -6,8 +6,8 @@
  * - Agency creation (METRLK)
  * - Subdivision creation (VENTURA, MONTALVO)
  * - Pin Types for Metro Link assets
- * - Asset/infrastructure pins from Sheet1
- * - Milepost GPS reference data from Sheet2 (Direct_MP)
+ * - Track assets from Sheet1 (Tracks table)
+ * - Milepost geometry data from Sheet2 (Direct_MP)
  * 
  * Usage: node backend/scripts/import-metrolink-data.js
  */
@@ -291,7 +291,7 @@ async function importExcelData(pool, agencyMap, subdivisions) {
   
   // Sheet 1: Infrastructure Assets
   const sheet1 = workbook.getWorksheet('Sheet1');
-  await importInfrastructureAssets(pool, agencyMap, subdivisions, sheet1);
+  await importTrackAssets(pool, agencyMap, subdivisions, sheet1);
   
   // Sheet 2: Milepost References
   const sheet2 = workbook.getWorksheet('Direct_MP');
@@ -419,10 +419,180 @@ async function importInfrastructureAssets(pool, agencyMap, subdivisions, workshe
 }
 
 /**
+ * Normalize track type to match DB constraints
+ */
+function normalizeTrackType(value) {
+  if (!value) return null;
+  const raw = value.toString().trim().toUpperCase();
+  if (raw === 'MAIN' || raw === 'MN') return 'Main';
+  if (raw === 'YD' || raw === 'YARD') return 'Yard';
+  if (raw === 'SD' || raw === 'SIDING') return 'Siding';
+  if (raw === 'ST' || raw === 'STORAGE') return 'Storage';
+  if (raw === 'XOVER' || raw === 'X-OVER' || raw === 'X_OVER' || raw === 'CROSSOVER') return 'X_Over';
+  return 'Other';
+}
+
+/**
+ * Normalize asset type to match DB constraints
+ */
+function normalizeAssetType(value) {
+  if (!value) return null;
+  const raw = value.toString().trim();
+  const upper = raw.toUpperCase();
+  if (upper === 'SWITCH') return 'Switch';
+  if (upper === 'SIGNAL') return 'Signal';
+  if (upper === 'CROSSING' || upper === 'ROAD CROSSING' || upper === 'RAIL CROSSING') return 'Crossing';
+  return 'Other';
+}
+
+/**
+ * Normalize asset status to match DB constraints
+ */
+function normalizeAssetStatus(value) {
+  if (!value) return null;
+  const upper = value.toString().trim().toUpperCase();
+  if (['ACTIVE', 'INACTIVE', 'PLANNED', 'REMOVED'].includes(upper)) return upper;
+  return null;
+}
+
+/**
+ * Import track assets from Sheet1 into Tracks
+ */
+async function importTrackAssets(pool, agencyMap, subdivisions, worksheet) {
+  console.log('ðŸ—ï¸  Importing Track Assets from Sheet1...');
+
+  let count = 0;
+  const rows = [];
+
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) {
+      return;
+    }
+    rows.push(row.values);
+  });
+
+  console.log(`  Found ${rows.length} asset records to import`);
+
+  for (const rowValues of rows) {
+    try {
+      const [
+        ,
+        agencyCD,
+        subdivision,
+        region,
+        ls,
+        trackType,
+        trackNumber,
+        divergingTrackType,
+        divergingTrackNumber,
+        facingDirection,
+        mpSuffix,
+        bmp,
+        emp,
+        assetName,
+        assetType,
+        assetSubType,
+        assetId,
+        dotNumber,
+        legacyAssetNumber,
+        assetDesc,
+        assetStatus,
+        latitude,
+        longitude,
+        department,
+        notes
+      ] = rowValues;
+
+      if (!subdivision || latitude === null || latitude === undefined || longitude === null || longitude === undefined) {
+        continue;
+      }
+
+      const agencyId = agencyMap[agencyCD];
+      if (!agencyId) {
+        console.log(`  âš ï¸  Skipping asset for unknown agency: ${agencyCD}`);
+        continue;
+      }
+
+      const subdivisionId = subdivisions[subdivision];
+      if (!subdivisionId) {
+        console.log(`  âš ï¸  Unknown subdivision: ${subdivision}`);
+        continue;
+      }
+
+      const normalizedTrackType = normalizeTrackType(trackType);
+      const normalizedDivergingTrackType = normalizeTrackType(divergingTrackType);
+      const normalizedAssetType = normalizeAssetType(assetType);
+      const normalizedAssetStatus = normalizeAssetStatus(assetStatus);
+      const resolvedAssetSubType = assetSubType || (normalizedAssetType === 'Other' && assetType ? assetType : null);
+
+      await pool.request()
+        .input('subdivision_id', sql.Int, subdivisionId)
+        .input('ls', sql.VarChar(50), ls || null)
+        .input('track_type', sql.VarChar(20), normalizedTrackType)
+        .input('track_number', sql.VarChar(20), trackNumber ? trackNumber.toString() : null)
+        .input('div_track_type', sql.VarChar(20), normalizedDivergingTrackType)
+        .input('div_track_number', sql.VarChar(20), divergingTrackNumber ? divergingTrackNumber.toString() : null)
+        .input('facing_direction', sql.VarChar(10), facingDirection || null)
+        .input('mp_suffix', sql.VarChar(10), mpSuffix || null)
+        .input('bmp', sql.Decimal(10, 4), bmp || null)
+        .input('emp', sql.Decimal(10, 4), emp || null)
+        .input('asset_name', sql.NVarChar(200), assetName || null)
+        .input('asset_type', sql.VarChar(50), normalizedAssetType || null)
+        .input('asset_subtype', sql.VarChar(50), resolvedAssetSubType || null)
+        .input('asset_id', sql.VarChar(100), assetId || null)
+        .input('dot_number', sql.VarChar(50), dotNumber || null)
+        .input('legacy_asset_number', sql.VarChar(50), legacyAssetNumber || null)
+        .input('asset_desc', sql.NVarChar(500), assetDesc || null)
+        .input('asset_status', sql.VarChar(20), normalizedAssetStatus || null)
+        .input('latitude', sql.Decimal(10, 8), latitude)
+        .input('longitude', sql.Decimal(11, 8), longitude)
+        .input('department', sql.VarChar(50), department || null)
+        .input('notes', sql.NVarChar(sql.MAX), notes || null)
+        .query(`
+          IF NOT EXISTS (
+            SELECT 1 FROM Tracks
+            WHERE Subdivision_ID = @subdivision_id
+              AND ISNULL(Asset_Name, '') = ISNULL(@asset_name, '')
+              AND ISNULL(Asset_ID, '') = ISNULL(@asset_id, '')
+              AND Latitude = @latitude
+              AND Longitude = @longitude
+          )
+          BEGIN
+            INSERT INTO Tracks (
+              Subdivision_ID, LS, Track_Type, Track_Number,
+              Diverging_Track_Type, Diverging_Track_Number, Facing_Direction, MP_Suffix,
+              BMP, EMP, Asset_Name, Asset_Type, Asset_SubType, Asset_ID, DOT_Number,
+              Legacy_Asset_Number, Asset_Desc, Asset_Status, Latitude, Longitude,
+              Department, Notes
+            )
+            VALUES (
+              @subdivision_id, @ls, @track_type, @track_number,
+              @div_track_type, @div_track_number, @facing_direction, @mp_suffix,
+              @bmp, @emp, @asset_name, @asset_type, @asset_subtype, @asset_id, @dot_number,
+              @legacy_asset_number, @asset_desc, @asset_status, @latitude, @longitude,
+              @department, @notes
+            );
+          END
+        `);
+
+      count++;
+
+      if (count % 25 === 0) {
+        process.stdout.write(`  Imported ${count} tracks...\r`);
+      }
+    } catch (error) {
+      console.error('  âŒ Error importing row:', error.message);
+    }
+  }
+
+  console.log(`âœ… Imported ${count} track assets\n`);
+}
+
+/**
  * Import milepost reference data from Sheet2
  */
 async function importMilepostReferences(pool, subdivisions, worksheet) {
-  console.log('📏 Importing Milepost References from Direct_MP sheet...');
+  console.log('📏 Importing Milepost Geometry from Direct_MP sheet...');
   
   let count = 0;
   const rows = [];
@@ -461,19 +631,23 @@ async function importMilepostReferences(pool, subdivisions, worksheet) {
         continue;
       }
       
-      // Insert milepost reference
+      // Insert milepost geometry
       await pool.request()
         .input('subdivision_id', sql.Int, subdivisionId)
-        .input('milepost', sql.Decimal(10, 2), milepost)
-        .input('latitude', sql.Decimal(10, 7), latitude)
-        .input('longitude', sql.Decimal(11, 7), longitude)
+        .input('milepost', sql.Decimal(10, 4), milepost)
+        .input('latitude', sql.Decimal(10, 8), latitude)
+        .input('longitude', sql.Decimal(11, 8), longitude)
         .input('apple_url', sql.NVarChar(500), appleMapUrl || null)
         .input('google_url', sql.NVarChar(500), googleMapUrl || null)
         .query(`
-          IF NOT EXISTS (SELECT 1 FROM Track_Mileposts WHERE Subdivision_ID = @subdivision_id AND Milepost = @milepost)
+          IF NOT EXISTS (SELECT 1 FROM Milepost_Geometry WHERE Subdivision_ID = @subdivision_id AND MP = @milepost)
           BEGIN
-            INSERT INTO Track_Mileposts (Subdivision_ID, Milepost, Latitude, Longitude, Apple_Map_URL, Google_Map_URL)
-            VALUES (@subdivision_id, @milepost, @latitude, @longitude, @apple_url, @google_url);
+            INSERT INTO Milepost_Geometry (
+              Subdivision_ID, MP, Latitude, Longitude, Apple_Map_URL, Google_Map_URL, Is_Active
+            )
+            VALUES (
+              @subdivision_id, @milepost, @latitude, @longitude, @apple_url, @google_url, 1
+            );
           END
         `);
       
@@ -488,7 +662,7 @@ async function importMilepostReferences(pool, subdivisions, worksheet) {
     }
   }
   
-  console.log(`✅ Imported ${count} milepost references\n`);
+  console.log(`✅ Imported ${count} milepost geometry rows\n`);
 }
 
 // Run the import

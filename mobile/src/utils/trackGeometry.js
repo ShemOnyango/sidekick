@@ -217,6 +217,8 @@ export const checkAuthorityBoundaries = (position, authority, trackGeometry) => 
       withinBoundaries: false,
       reason: 'Not on track',
       currentMilepost: null,
+      distanceToBegin: null,
+      distanceToEnd: null,
     };
   }
   
@@ -229,12 +231,14 @@ export const checkAuthorityBoundaries = (position, authority, trackGeometry) => 
       currentMilepost: currentTrack.milepost,
       expectedTrack: `${authority.Track_Type} ${authority.Track_Number}`,
       actualTrack: `${currentTrack.trackType} ${currentTrack.trackNumber}`,
+      distanceToBegin: null,
+      distanceToEnd: null,
     };
   }
   
   const mp = currentTrack.milepost;
-  const begin = parseFloat(authority.Begin_Milepost);
-  const end = parseFloat(authority.End_Milepost);
+  const begin = parseFloat(authority.Begin_MP);
+  const end = parseFloat(authority.End_MP);
   
   const withinBoundaries = mp >= begin && mp <= end;
   

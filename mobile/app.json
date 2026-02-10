@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Herzog Rail Authority",
+    "name": "Sidekick",
     "slug": "herzog-rail-authority",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -16,16 +16,21 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.herzog.railauthority",
+      "bundleIdentifier": "com.sidekick.app",
       "buildNumber": "1.0.0",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "This app needs access to your location to track your position on tracks.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to your location to track your position on tracks even when the app is in the background.",
+        "NSLocationWhenInUseUsageDescription": "Sidekick tracks your GPS position to show your location on railroad tracks, calculate distance to authority limits, and provide safety alerts when you approach boundaries.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Sidekick requires continuous location access to ensure your safety while working on railroad tracks. We track your position to alert you when approaching authority limits, warn about nearby workers, and maintain a complete safety log of your movements - even when your phone is locked or the app is in background. You can stop tracking anytime by ending your active authority.",
+        "NSCameraUsageDescription": "Sidekick needs camera access to take photos for pin drops and attach images to track condition reports.",
+        "NSPhotoLibraryUsageDescription": "Sidekick needs photo library access to attach existing photos from your device to pin drops and trip reports.",
+        "NSPhotoLibraryAddUsageDescription": "Sidekick needs permission to save photos you take with the app to your photo library.",
+        "NSMotionUsageDescription": "Sidekick uses motion sensors to improve GPS accuracy and calculate your heading on tracks.",
         "UIBackgroundModes": [
           "location",
           "fetch",
           "remote-notification"
-        ]
+        ],
+        "UIRequiresFullScreen": true
       },
       "config": {
         "googleMapsApiKey": "YOUR_IOS_GOOGLE_MAPS_API_KEY"
@@ -36,7 +41,8 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.herzog.railauthority",
+      "usesCleartextTraffic": true,
+      "package": "com.sidekick.app",
       "versionCode": 1,
       "permissions": [
         "android.permission.ACCESS_FINE_LOCATION",
@@ -61,20 +67,22 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUseUsageDescription": "Allow $(PRODUCT_NAME) to use your location."
+          "locationAlwaysAndWhenInUseUsageDescription": "Sidekick requires continuous location access to ensure your safety while working on railroad tracks. We track your position to alert you when approaching authority limits, warn about nearby workers, and maintain a complete safety log of your movements - even when your phone is locked or the app is in background."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "The app accesses your photos to let you attach them to pin drops."
+          "photosPermission": "Sidekick needs access to your photos to attach images to pin drops and trip reports for documentation purposes.",
+          "cameraPermission": "Sidekick needs camera access to take photos of track conditions and attach them to pin drops and safety reports."
         }
       ],
       [
         "expo-notifications",
         {
           "icon": "./assets/icon.png",
-          "color": "#FFD100"
+          "color": "#FFD100",
+          "sounds": []
         }
       ],
       "@react-native-community/datetimepicker"

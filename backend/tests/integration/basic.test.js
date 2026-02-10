@@ -2,7 +2,7 @@ const request = require('supertest');
 const app = require('../../src/server');
 const { connectToDatabase, closeConnection } = require('../../src/config/database');
 
-describe('Herzog Rail Authority API', () => {
+describe('Sidekick API', () => {
   let adminToken;
 
   beforeAll(async () => {
@@ -51,7 +51,7 @@ describe('Herzog Rail Authority API', () => {
       
       expect(res.statusCode).toEqual(200);
       expect(res.body).toHaveProperty('status', 'ok');
-      expect(res.body).toHaveProperty('service', 'Herzog Rail Authority API');
+      expect(res.body).toHaveProperty('service', 'Sidekick API');
     });
   });
 

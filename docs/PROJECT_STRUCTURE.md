@@ -1,4 +1,4 @@
-# Herzog Rail Authority System - Project Structure
+# Sidekick System - Project Structure
 
 ## Root Directory
 

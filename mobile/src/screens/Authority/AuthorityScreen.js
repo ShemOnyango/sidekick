@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,18 +7,30 @@ import {
   ScrollView,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSelector, useDispatch } from 'react-redux';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { clearAuthority } from '../../store/slices/authoritySlice';
+import { endAuthority, getActiveAuthority } from '../../store/slices/authoritySlice';
 import theme from '../../constants/theme';
+import gpsTrackingService from '../../services/gps/GPSTrackingService';
+import logger from '../../utils/logger';
 
 const AuthorityScreen = () => {
   const navigation = useNavigation();
   const dispatch = useDispatch();
-  const { activeAuthority } = useSelector((state) => state.authority);
+  const { currentAuthority: activeAuthority } = useSelector((state) => state.authority);
+
+  // Fetch active authority when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      dispatch(getActiveAuthority());
+    }, [dispatch])
+  );
 
   const handleClearAuthority = () => {
+    if (!activeAuthority) return;
+    
     Alert.alert(
       'Clear Authority',
       'Are you sure you want to clear this authority? This action cannot be undone.',
@@ -32,7 +44,14 @@ const AuthorityScreen = () => {
           style: 'destructive',
           onPress: async () => {
             try {
-              await dispatch(clearAuthority()).unwrap();
+              // Stop GPS tracking first
+              await gpsTrackingService.stopTracking();
+              logger.info('Authority', 'GPS tracking stopped');
+              
+              await dispatch(endAuthority({ 
+                authorityId: activeAuthority.Authority_ID, 
+                confirmEndTracking: true 
+              })).unwrap();
               Alert.alert('Success', 'Authority cleared successfully');
             } catch (error) {
               Alert.alert('Error', error.message || 'Failed to clear authority');
@@ -49,7 +68,7 @@ const AuthorityScreen = () => {
 
   if (!activeAuthority) {
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.emptyContainer}>
           <MaterialCommunityIcons name="clipboard-off-outline" size={80} color={theme.colors.textSecondary} />
           <Text style={styles.emptyTitle}>No Active Authority</Text>
@@ -64,12 +83,13 @@ const AuthorityScreen = () => {
             <Text style={styles.createButtonText}>Create Authority</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+    <SafeAreaView style={styles.safeContainer} edges={['top', 'left', 'right']}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       <View style={styles.header}>
         <MaterialCommunityIcons name="clipboard-check" size={40} color={theme.colors.accent} />
         <Text style={styles.headerTitle}>Active Authority</Text>
@@ -80,7 +100,9 @@ const AuthorityScreen = () => {
           <MaterialCommunityIcons name="account" size={24} color={theme.colors.accent} />
           <View style={styles.infoContent}>
             <Text style={styles.infoLabel}>Employee Name</Text>
-            <Text style={styles.infoValue}>{activeAuthority.employeeName}</Text>
+            <Text style={styles.infoValue}>
+              {activeAuthority.Employee_Name_Display || activeAuthority.Employee_Name || 'N/A'}
+            </Text>
           </View>
         </View>
 
@@ -88,7 +110,9 @@ const AuthorityScreen = () => {
           <MaterialCommunityIcons name="phone" size={24} color={theme.colors.accent} />
           <View style={styles.infoContent}>
             <Text style={styles.infoLabel}>Contact</Text>
-            <Text style={styles.infoValue}>{activeAuthority.contactNumber}</Text>
+            <Text style={styles.infoValue}>
+              {activeAuthority.Employee_Contact_Display || activeAuthority.Employee_Contact || 'N/A'}
+            </Text>
           </View>
         </View>
 
@@ -97,7 +121,7 @@ const AuthorityScreen = () => {
           <View style={styles.infoContent}>
             <Text style={styles.infoLabel}>Subdivision</Text>
             <Text style={styles.infoValue}>
-              {activeAuthority.subdivisionName || `ID: ${activeAuthority.subdivisionId}`}
+              {activeAuthority.Subdivision_Name || activeAuthority.Subdivision_Code || `ID: ${activeAuthority.Subdivision_ID}`}
             </Text>
           </View>
         </View>
@@ -109,7 +133,7 @@ const AuthorityScreen = () => {
           <View style={styles.infoContent}>
             <Text style={styles.infoLabel}>Track Range</Text>
             <Text style={styles.infoValue}>
-              MP {activeAuthority.beginMilepost} to MP {activeAuthority.endMilepost}
+              MP {activeAuthority.Begin_MP} to MP {activeAuthority.End_MP}
             </Text>
           </View>
         </View>
@@ -119,19 +143,19 @@ const AuthorityScreen = () => {
           <View style={styles.infoContent}>
             <Text style={styles.infoLabel}>Track</Text>
             <Text style={styles.infoValue}>
-              {activeAuthority.trackType} {activeAuthority.trackNumber}
+              {activeAuthority.Track_Type} {activeAuthority.Track_Number}
             </Text>
           </View>
         </View>
 
-        {activeAuthority.notes && (
+        {activeAuthority.Notes && (
           <>
             <View style={styles.divider} />
             <View style={styles.infoRow}>
               <MaterialCommunityIcons name="note-text" size={24} color={theme.colors.accent} />
               <View style={styles.infoContent}>
                 <Text style={styles.infoLabel}>Notes</Text>
-                <Text style={styles.infoValue}>{activeAuthority.notes}</Text>
+                <Text style={styles.infoValue}>{activeAuthority.Notes}</Text>
               </View>
             </View>
           </>
@@ -144,7 +168,7 @@ const AuthorityScreen = () => {
           <View style={styles.infoContent}>
             <Text style={styles.infoLabel}>Created</Text>
             <Text style={styles.infoValue}>
-              {new Date(activeAuthority.createdAt).toLocaleString()}
+              {activeAuthority.Start_Time ? new Date(activeAuthority.Start_Time).toLocaleString() : 'N/A'}
             </Text>
           </View>
         </View>
@@ -165,10 +189,15 @@ const AuthorityScreen = () => {
         </Text>
       </View>
     </ScrollView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safeContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+  },
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,

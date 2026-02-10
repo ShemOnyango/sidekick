@@ -1,7 +1,8 @@
 const OfflineDownload = require('../models/OfflineDownload');
 const Agency = require('../models/Agency');
 const { logger } = require('../config/logger');
-const { getConnection, sql } = require('../config/database');
+const db = require('../config/database');
+const sql = require('mssql');
 
 class OfflineController {
   /**
@@ -31,15 +32,8 @@ class OfflineController {
         });
       }
 
-      // Track download
-      await OfflineDownload.upsertDownload({
-        userId: user.User_ID,
-        deviceId,
-        agencyId: parseInt(agencyId),
-        downloadType: 'Agency_Data',
-        dataSize: JSON.stringify(agency).length / (1024 * 1024) // Size in MB
-      });
-
+      // Track download - disabled due to schema mismatch
+      // TODO: Fix OfflineDownload model to match actual database schema
       logger.info(`Agency data downloaded: Agency ${agencyId} by user ${user.User_ID}`);
 
       res.json({
@@ -76,7 +70,10 @@ class OfflineController {
         });
       }
 
-      const pool = getConnection();
+      const pool = await db.connectToDatabase();
+      if (!pool) {
+        throw new Error('Database connection failed');
+      }
 
       // Get subdivision details
       const subdivisionQuery = `
@@ -110,13 +107,10 @@ class OfflineController {
         SELECT 
           MP,
           Latitude,
-          Longitude,
-          Track_Type,
-          Track_Number
+          Longitude
         FROM Milepost_Geometry
         WHERE Subdivision_ID = @subdivisionId
-          AND Is_Active = 1
-        ORDER BY Track_Type, Track_Number, MP
+        ORDER BY MP
       `;
 
       const geometryResult = await pool.request()
@@ -128,7 +122,6 @@ class OfflineController {
         SELECT *
         FROM Tracks
         WHERE Subdivision_ID = @subdivisionId
-          AND Is_Active = 1
         ORDER BY Track_Type, Track_Number, Begin_MP
       `;
 
@@ -138,7 +131,10 @@ class OfflineController {
 
       const data = {
         subdivision,
-        milepostGeometry: geometryResult.recordset,
+        mileposts: geometryResult.recordset.map(mp => ({
+          ...mp,
+          Milepost: mp.MP  // Add Milepost field for compatibility
+        })),
         tracks: tracksResult.recordset,
         metadata: {
           totalMileposts: geometryResult.recordset.length,
@@ -147,16 +143,8 @@ class OfflineController {
         }
       };
 
-      // Track download
-      await OfflineDownload.upsertDownload({
-        userId: user.User_ID,
-        deviceId,
-        agencyId: parseInt(agencyId),
-        subdivisionId: parseInt(subdivisionId),
-        downloadType: 'Subdivision_Data',
-        dataSize: JSON.stringify(data).length / (1024 * 1024)
-      });
-
+      // Track download - disabled due to schema mismatch
+      // TODO: Fix OfflineDownload model to match actual database schema
       logger.info(`Subdivision data downloaded: Subdivision ${subdivisionId} by user ${user.User_ID}`);
 
       res.json({
@@ -169,6 +157,98 @@ class OfflineController {
       });
     } catch (error) {
       logger.error('Download subdivision data error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to download subdivision data'
+      });
+    }
+  }
+
+  /**
+   * Get subdivision data with milepost geometry (uses user's agency from token)
+   */
+  /**
+   * Get subdivision data with milepost geometry (uses user's agency from token)
+   */
+  async downloadSubdivisionDataByUser(req, res) {
+    try {
+      const { subdivisionId } = req.params;
+      const user = req.user;
+      const agencyId = user.Agency_ID;
+      const deviceId = req.headers['x-device-id'] || 'unknown';
+
+      const pool = await db.connectToDatabase();
+      if (!pool) {
+        throw new Error('Database connection failed');
+      }
+
+      // Get subdivision details
+      const subdivisionQuery = `
+        SELECT 
+          s.*,
+          a.Agency_Name,
+          a.Agency_CD
+        FROM Subdivisions s
+        INNER JOIN Agencies a ON s.Agency_ID = a.Agency_ID
+        WHERE s.Subdivision_ID = @subdivisionId
+          AND s.Agency_ID = @agencyId
+          AND s.Is_Active = 1
+      `;
+
+      const subdivisionResult = await pool.request()
+        .input('subdivisionId', sql.Int, subdivisionId)
+        .input('agencyId', sql.Int, agencyId)
+        .query(subdivisionQuery);
+
+      if (subdivisionResult.recordset.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Subdivision not found'
+        });
+      }
+
+      const subdivision = subdivisionResult.recordset[0];
+
+      // Get milepost reference points from Track_Mileposts table
+      // NOTE: Track_Mileposts only has: Milepost_ID, Subdivision_ID, Milepost, Latitude, Longitude
+      const milepostQuery = `
+        SELECT 
+          Milepost_ID,
+          Subdivision_ID,
+          Milepost,
+          Latitude,
+          Longitude
+        FROM Track_Mileposts
+        WHERE Subdivision_ID = @subdivisionId
+        ORDER BY Milepost
+      `;
+
+      const milepostResult = await pool.request()
+        .input('subdivisionId', sql.Int, subdivisionId)
+        .query(milepostQuery);
+
+      const data = {
+        subdivision,
+        mileposts: milepostResult.recordset,
+        metadata: {
+          totalMileposts: milepostResult.recordset.length
+        }
+      };
+
+      // Track download - disabled due to schema mismatch
+      // TODO: Fix OfflineDownload model to match actual database schema
+      logger.info(`Subdivision data downloaded by user: Subdivision ${subdivisionId} by user ${user.User_ID}`);
+
+      res.json({
+        success: true,
+        data: {
+          ...data,
+          downloadedAt: new Date(),
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+        }
+      });
+    } catch (error) {
+      logger.error('Download subdivision data by user error:', error);
       res.status(500).json({
         success: false,
         error: 'Failed to download subdivision data'
@@ -252,7 +332,10 @@ class OfflineController {
   async getAvailableDownloads(req, res) {
     try {
       const user = req.user;
-      const pool = getConnection();
+      const pool = await db.connectToDatabase();
+      if (!pool) {
+        throw new Error('Database connection failed');
+      }
 
       // Get subdivisions for user's agency
       const query = `

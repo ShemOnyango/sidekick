@@ -1,9 +1,10 @@
+require('dotenv').config();
 const sql = require('mssql');
 
 // Database configuration
 const sqlConfig = {
   user: process.env.DB_USER || 'sa',
-  password: process.env.DB_PASSWORD || 'Herzog2024!',
+  password: process.env.DB_PASSWORD || 'YourStrong!Passw0rd',
   server: process.env.DB_SERVER || 'localhost',
   database: process.env.DB_NAME || 'HerzogRailAuthority',
   options: {
@@ -31,7 +32,7 @@ async function seedPinTypes() {
     const pinTypes = [
       // Safety pins
       {
-        agencyId: 1,
+        agencyId: 17,
         category: 'Safety',
         subtype: 'Hazard',
         color: '#FF0000',
@@ -40,7 +41,7 @@ async function seedPinTypes() {
         sortOrder: 1
       },
       {
-        agencyId: 1,
+        agencyId: 17,
         category: 'Safety',
         subtype: 'Warning',
         color: '#FFA500',
@@ -49,7 +50,7 @@ async function seedPinTypes() {
         sortOrder: 2
       },
       {
-        agencyId: 1,
+        agencyId: 17,
         category: 'Safety',
         subtype: 'Caution',
         color: '#FFFF00',
@@ -59,7 +60,7 @@ async function seedPinTypes() {
       },
       // Infrastructure pins
       {
-        agencyId: 1,
+        agencyId: 17,
         category: 'Infrastructure',
         subtype: 'Track Damage',
         color: '#8B0000',
@@ -68,7 +69,7 @@ async function seedPinTypes() {
         sortOrder: 4
       },
       {
-        agencyId: 1,
+        agencyId: 17,
         category: 'Infrastructure',
         subtype: 'Signal Issue',
         color: '#FF4500',
@@ -77,7 +78,7 @@ async function seedPinTypes() {
         sortOrder: 5
       },
       {
-        agencyId: 1,
+        agencyId: 17,
         category: 'Infrastructure',
         subtype: 'Switch Problem',
         color: '#FF6347',
@@ -87,7 +88,7 @@ async function seedPinTypes() {
       },
       // Maintenance pins
       {
-        agencyId: 1,
+        agencyId: 17,
         category: 'Maintenance',
         subtype: 'Repair Needed',
         color: '#4169E1',
@@ -96,7 +97,7 @@ async function seedPinTypes() {
         sortOrder: 7
       },
       {
-        agencyId: 1,
+        agencyId: 17,
         category: 'Maintenance',
         subtype: 'Inspection Required',
         color: '#1E90FF',
@@ -105,7 +106,7 @@ async function seedPinTypes() {
         sortOrder: 8
       },
       {
-        agencyId: 1,
+        agencyId: 17,
         category: 'Maintenance',
         subtype: 'Work Complete',
         color: '#00CED1',
@@ -115,7 +116,7 @@ async function seedPinTypes() {
       },
       // Information pins
       {
-        agencyId: 1,
+        agencyId: 17,
         category: 'Information',
         subtype: 'Note',
         color: '#32CD32',
@@ -124,7 +125,7 @@ async function seedPinTypes() {
         sortOrder: 10
       },
       {
-        agencyId: 1,
+        agencyId: 17,
         category: 'Information',
         subtype: 'Landmark',
         color: '#00FF00',
@@ -133,7 +134,7 @@ async function seedPinTypes() {
         sortOrder: 11
       },
       {
-        agencyId: 1,
+        agencyId: 17,
         category: 'Information',
         subtype: 'Reference Point',
         color: '#7FFF00',

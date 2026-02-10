@@ -120,7 +120,22 @@ const pinSlice = createSlice({
       })
       .addCase(fetchPins.fulfilled, (state, action) => {
         state.loading = false;
-        state.pins = action.payload;
+        // API returns { success: true, data: [...] }
+        const pinsData = action.payload.data || action.payload;
+        console.log('Fetched pins in reducer:', pinsData);
+        state.pins = Array.isArray(pinsData) ? pinsData.map(pin => ({
+          id: pin.Pin_ID,
+          category: pin.Pin_Category || pin.Type_Name || 'Unknown',
+          latitude: pin.Latitude,
+          longitude: pin.Longitude,
+          trackType: pin.Track_Type,
+          trackNumber: pin.Track_Number,
+          milepost: pin.MP,
+          notes: pin.Notes,
+          photoUri: pin.Photo_URL,
+          timestamp: pin.Created_Date,
+          syncPending: false
+        })) : [];
       })
       .addCase(fetchPins.rejected, (state, action) => {
         state.loading = false;

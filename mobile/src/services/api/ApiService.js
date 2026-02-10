@@ -5,6 +5,7 @@ import databaseService from '../database/DatabaseService';
 
 class ApiService {
   constructor() {
+    console.log('🔧 ApiService initialized with BASE_URL:', CONFIG.API.BASE_URL);
     this.api = axios.create({
       baseURL: CONFIG.API.BASE_URL,
       timeout: CONFIG.API.TIMEOUT,
@@ -14,13 +15,43 @@ class ApiService {
       }
     });
 
+    this.cachedUser = null;
+    this.cacheTimestamp = null;
+    this.CACHE_TTL = 5000; // Cache for 5 seconds
+
     // Request interceptor
     this.api.interceptors.request.use(
       async (config) => {
-        // Get token from database
-        const user = await databaseService.getUser();
-        if (user && user.token) {
-          config.headers.Authorization = `Bearer ${user.token}`;
+        // Skip token for auth endpoints and public endpoints
+        const publicEndpoints = [
+          '/auth/login', 
+          '/auth/register', 
+          '/auth/forgot-password',
+          '/agencies/',  // Public agency data like subdivisions
+        ];
+        const isPublicEndpoint = publicEndpoints.some(endpoint => config.url?.includes(endpoint));
+        
+        if (isPublicEndpoint) {
+          return config;
+        }
+        
+        // Get token from AsyncStorage
+        const now = Date.now();
+        if (!this.cachedUser || !this.cacheTimestamp || (now - this.cacheTimestamp) > this.CACHE_TTL) {
+          try {
+            const userJson = await AsyncStorage.getItem('@HerzogDB:user');
+            this.cachedUser = userJson ? JSON.parse(userJson) : null;
+            this.cacheTimestamp = now;
+          } catch (error) {
+            console.error('Error getting user from AsyncStorage:', error);
+            this.cachedUser = null;
+          }
+        }
+        
+        if (this.cachedUser && this.cachedUser.token) {
+          config.headers.Authorization = `Bearer ${this.cachedUser.token}`;
+        } else {
+          console.warn('No token available for request to:', config.url);
         }
         return config;
       },
@@ -35,15 +66,39 @@ class ApiService {
       async (error) => {
         const originalRequest = error.config;
         
-        // Handle token refresh
+        // Don't retry refresh-token endpoint to prevent infinite loops
+        if (originalRequest.url?.includes('/auth/refresh-token')) {
+          // Refresh token failed, log user out
+          await this.handleLogout();
+          return Promise.reject(error);
+        }
+        
+        // Handle token refresh for other endpoints
         if (error.response?.status === 401 && !originalRequest._retry) {
           originalRequest._retry = true;
+          
+          // Check if we have a user before attempting refresh
+          try {
+            const userJson = await AsyncStorage.getItem('@HerzogDB:user');
+            const user = userJson ? JSON.parse(userJson) : null;
+            
+            if (!user || !user.token) {
+              // No user logged in, don't try to refresh
+              return Promise.reject(error);
+            }
+          } catch (err) {
+            return Promise.reject(error);
+          }
           
           try {
             const newToken = await this.refreshToken();
             if (newToken) {
               originalRequest.headers.Authorization = `Bearer ${newToken}`;
               return this.api(originalRequest);
+            } else {
+              // Refresh failed, log user out
+              await this.handleLogout();
+              return Promise.reject(error);
             }
           } catch (refreshError) {
             // Refresh failed, log user out
@@ -64,6 +119,9 @@ class ApiService {
         const user = await databaseService.getUser();
         if (user) {
           await databaseService.updateUserToken(user.user_id, response.data.data.token);
+          // Clear cache when token is updated
+          this.cachedUser = null;
+          this.cacheTimestamp = 0;
         }
         return response.data.data.token;
       }
@@ -74,6 +132,10 @@ class ApiService {
   }
 
   async handleLogout() {
+    // Clear cache on logout
+    this.cachedUser = null;
+    this.cacheTimestamp = 0;
+    
     // Clear local storage
     await AsyncStorage.clear();
     await databaseService.clearDatabase();
@@ -85,9 +147,19 @@ class ApiService {
   // Auth endpoints
   async login(username, password) {
     try {
+      console.log('🔐 Attempting login to:', this.api.defaults.baseURL + '/auth/login');
+      console.log('🌐 Full URL:', `${this.api.defaults.baseURL}/auth/login`);
       const response = await this.api.post('/auth/login', { username, password });
+      console.log('✅ Login successful');
       return response.data;
     } catch (error) {
+      console.log('❌ Login failed:', error.message);
+      if (error.code === 'ECONNABORTED') {
+        console.log('⏱️ Request timeout - backend might be unreachable');
+      }
+      if (error.code === 'ERR_NETWORK' || error.message.includes('Network Error')) {
+        console.log('🔌 Network error - check WiFi connection and backend status');
+      }
       throw this.handleError(error);
     }
   }
@@ -146,6 +218,24 @@ class ApiService {
   async getAgencyStats(agencyId) {
     try {
       const response = await this.api.get(`/agencies/${agencyId}/stats`);
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  async getAgencySubdivisions(agencyId) {
+    try {
+      const response = await this.api.get(`/agencies/${agencyId}/subdivisions`);
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  async getSubdivisionTracks(agencyId, subdivisionId) {
+    try {
+      const response = await this.api.get(`/agencies/${agencyId}/subdivisions/${subdivisionId}/tracks`);
       return response.data;
     } catch (error) {
       throw this.handleError(error);
@@ -220,7 +310,7 @@ class ApiService {
 
   async getUserAlerts(limit = 50, unreadOnly = false) {
     try {
-      const response = await this.api.get('/alerts/my', {
+      const response = await this.api.get('/alerts/user', {
         params: { limit, unreadOnly }
       });
       return response.data;
@@ -231,7 +321,7 @@ class ApiService {
 
   async markAlertAsRead(alertId) {
     try {
-      const response = await this.api.put(`/alerts/read/${alertId}`);
+      const response = await this.api.post(`/alerts/${alertId}/read`);
       return response.data;
     } catch (error) {
       throw this.handleError(error);
@@ -291,10 +381,47 @@ class ApiService {
     }
   }
 
+  async createPin(pinData) {
+    try {
+      const response = await this.api.post('/pins', pinData);
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
   async syncData(syncItems) {
     try {
       const response = await this.api.post('/sync', { items: syncItems });
       return response.data;
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  // Map layers
+  async getMapLayers(params = {}) {
+    try {
+      const response = await this.api.get('/map/layers', { params });
+      return response.data?.data;
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  async getMapLayerData(layerId, params = {}) {
+    try {
+      const response = await this.api.get(`/map/layers/${encodeURI(layerId)}`, { params });
+      return response.data?.data;
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  async searchMapLayers(params = {}) {
+    try {
+      const response = await this.api.get('/map/search', { params });
+      return response.data?.data;
     } catch (error) {
       throw this.handleError(error);
     }

@@ -5,11 +5,15 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSelector, useDispatch } from 'react-redux';
 import { checkAuthStatus } from '../store/slices/authSlice';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import socketService from '../services/socket/SocketService';
+import logger from '../utils/logger';
 
 // Screens
 import LoginScreen from '../screens/Auth/LoginScreen';
 import HomeScreen from '../screens/Home/HomeScreen';
+import SearchScreen from '../screens/Search/SearchScreen';
 import MapScreen from '../screens/Map/MapScreen';
+import MapViewsScreen from '../screens/Map/MapViewsScreen';
 import AuthorityScreen from '../screens/Authority/AuthorityScreen';
 import PinsScreen from '../screens/Pins/PinsScreen';
 import AlertsScreen from '../screens/Alerts/AlertsScreen';
@@ -41,8 +45,14 @@ const MainTabNavigator = () => {
             case 'Home':
               iconName = focused ? 'home' : 'home-outline';
               break;
+            case 'Search':
+              iconName = focused ? 'magnify' : 'magnify';
+              break;
             case 'Map':
               iconName = focused ? 'map' : 'map-outline';
+              break;
+            case 'MapViews':
+              iconName = focused ? 'map-legend' : 'map-legend';
               break;
             case 'Authority':
               iconName = focused ? 'clipboard-check' : 'clipboard-check-outline';
@@ -81,9 +91,19 @@ const MainTabNavigator = () => {
         options={{ title: 'Dashboard' }}
       />
       <Tab.Screen 
+        name="Search" 
+        component={SearchScreen} 
+        options={{ title: 'Search' }}
+      />
+      <Tab.Screen 
         name="Map" 
         component={MapScreen} 
         options={{ title: 'Rail Map' }}
+      />
+      <Tab.Screen 
+        name="MapViews" 
+        component={MapViewsScreen} 
+        options={{ title: 'Map Views' }}
       />
       <Tab.Screen 
         name="Authority" 
@@ -177,6 +197,19 @@ const AppNavigator = () => {
 
     initializeAuth();
   }, [dispatch]);
+
+  // Connect socket when user is authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      logger.info('Socket', 'User authenticated, connecting to server...');
+      socketService.connect().catch(error => {
+        logger.error('Socket', 'Failed to connect to server', error);
+      });
+    } else {
+      // Disconnect socket when user logs out
+      socketService.disconnect();
+    }
+  }, [isAuthenticated]);
 
   if (isCheckingAuth || isLoading) {
     // Show splash screen or loading indicator

@@ -1,7 +1,7 @@
 # System Audit Logs & Analytics Dashboard - Implementation Complete
 
 ## Overview
-This implementation provides production-ready **System Audit Logs** and **Analytics Dashboard** features for the Herzog Rail Authority admin portal.
+This implementation provides production-ready **System Audit Logs** and **Analytics Dashboard** features for the Sidekick admin portal.
 
 ## Backend Implementation
 

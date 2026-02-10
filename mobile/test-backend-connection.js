@@ -259,7 +259,7 @@ async function testGetAuditLogs() {
 // Main test runner
 async function runTests() {
   log('\n╔════════════════════════════════════════════════════════════╗', 'blue');
-  log('║  Herzog Rail Authority - Mobile Backend Connection Test  ║', 'blue');
+  log('║  Sidekick - Mobile Backend Connection Test  ║', 'blue');
   log('╚════════════════════════════════════════════════════════════╝', 'blue');
   
   const results = {

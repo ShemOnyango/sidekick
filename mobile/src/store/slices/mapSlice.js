@@ -47,6 +47,7 @@ const initialState = {
     longitudeDelta: 0.1,
   },
   mapType: 'standard', // 'standard', 'satellite', 'hybrid'
+  mapStyleId: 'dark_gray_labels',
   followMeEnabled: false,
   
   // Track data
@@ -60,6 +61,7 @@ const initialState = {
   showPins: true,
   showMileposts: false,
   showTrackNumbers: true,
+  layerVisibility: {},
   
   // Loading states
   loading: false,
@@ -76,6 +78,9 @@ const mapSlice = createSlice({
     setMapType: (state, action) => {
       state.mapType = action.payload;
     },
+    setMapStyleId: (state, action) => {
+      state.mapStyleId = action.payload;
+    },
     setFollowMeEnabled: (state, action) => {
       console.log('🔍 setFollowMeEnabled called with:', {
         value: action.payload,
@@ -90,6 +95,10 @@ const mapSlice = createSlice({
     toggleLayer: (state, action) => {
       const { layer, value } = action.payload;
       state[layer] = value !== undefined ? value : !state[layer];
+    },
+    setLayerVisibility: (state, action) => {
+      const { layerId, value } = action.payload;
+      state.layerVisibility[layerId] = Boolean(value);
     },
     centerOnLocation: (state, action) => {
       const { latitude, longitude } = action.payload;
@@ -165,9 +174,11 @@ const mapSlice = createSlice({
 export const {
   setMapRegion,
   setMapType,
+  setMapStyleId,
   setFollowMeEnabled,
   setSelectedSubdivision,
   toggleLayer,
+  setLayerVisibility,
   centerOnLocation,
   centerOnAuthority,
   clearMapData,

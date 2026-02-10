@@ -62,7 +62,7 @@ const Login = () => {
         Admin Portal
       </Typography>
       <Typography variant="body2" color="textSecondary" textAlign="center" mb={3}>
-        Herzog Rail Authority Management System
+        Sidekick Management System
       </Typography>
 
       {error && (

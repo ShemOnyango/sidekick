@@ -84,7 +84,7 @@ const AuthLayout = ({ children }) => {
             fontSize: '0.875rem',
           }}
         >
-          © {new Date().getFullYear()} Herzog Rail Authority Management System
+          © {new Date().getFullYear()} Sidekick Management System
         </Box>
       </Container>
     </Box>

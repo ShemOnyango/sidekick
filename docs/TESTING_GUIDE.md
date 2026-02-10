@@ -1,4 +1,4 @@
-# Herzog Rail Authority System - Testing Guide
+# Sidekick System - Testing Guide
 
 ## Overview
 This guide covers comprehensive testing for both Backend (Node.js/Express) and Admin Portal (React) applications.

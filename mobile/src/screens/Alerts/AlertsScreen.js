@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   FlatList,
+  ScrollView,
   TouchableOpacity,
   RefreshControl,
   Alert,
@@ -121,7 +122,7 @@ const AlertsScreen = () => {
     >
       <View style={styles.alertHeader}>
         <View style={styles.severityBadge}>
-          <Icon
+          <MaterialCommunityIcons
             name={getSeverityIcon(item.severity)}
             size={20}
             color={getSeverityColor(item.severity)}
@@ -193,36 +194,36 @@ const AlertsScreen = () => {
         )}
       </View>
 
-      <View style={styles.filterContainer}>
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={filters}
-          keyExtractor={(item) => item}
-          renderItem={({ item }) => (
-            <TouchableOpacity
+      <ScrollView 
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterContainer}
+        contentContainerStyle={styles.filterContent}
+      >
+        {filters.map((item) => (
+          <TouchableOpacity
+            key={item}
+            style={[
+              styles.filterChip,
+              filter === item && styles.filterChipActive,
+            ]}
+            onPress={() => setFilter(item)}
+          >
+            <Text
               style={[
-                styles.filterChip,
-                filter === item && styles.filterChipActive,
+                styles.filterChipText,
+                filter === item && styles.filterChipTextActive,
               ]}
-              onPress={() => setFilter(item)}
             >
-              <Text
-                style={[
-                  styles.filterChipText,
-                  filter === item && styles.filterChipTextActive,
-                ]}
-              >
-                {item}
-              </Text>
-            </TouchableOpacity>
-          )}
-        />
-      </View>
+              {item}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
       <FlatList
         data={filteredAlerts}
-        keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
+        keyExtractor={(item, index) => item.id?.toString() || `alert-${index}`}
         renderItem={renderAlert}
         contentContainerStyle={styles.listContainer}
         ListEmptyComponent={renderEmptyState}

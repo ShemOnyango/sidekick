@@ -7,15 +7,16 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  ProgressBarAndroid,
   ProgressViewIOS,
   Platform,
 } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { Ionicons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import theme from '../../constants/theme';
+import { CONFIG } from '../../constants/config';
+import apiService from '../../services/api/ApiService';
 
 const OfflineDownloadScreen = ({ navigation }) => {
   const { user } = useSelector((state) => state.auth);
@@ -43,11 +44,12 @@ const OfflineDownloadScreen = ({ navigation }) => {
 
   const loadAgencies = async () => {
     try {
-      const response = await fetch(
-        `${process.env.EXPO_PUBLIC_API_URL}/agencies`
-      );
-      const data = await response.json();
-      setAgencies(data);
+      const response = await apiService.getAgencies(1, 200, '');
+      if (response?.success) {
+        setAgencies(response.data?.agencies || []);
+      } else {
+        setAgencies([]);
+      }
       
       // Auto-select user's agency
       if (user.Agency_ID) {
@@ -55,18 +57,21 @@ const OfflineDownloadScreen = ({ navigation }) => {
       }
     } catch (error) {
       console.error('Error loading agencies:', error);
+      setAgencies([]);
     }
   };
 
   const loadSubdivisions = async (agencyId) => {
     try {
-      const response = await fetch(
-        `${process.env.EXPO_PUBLIC_API_URL}/subdivisions?agencyId=${agencyId}`
-      );
-      const data = await response.json();
-      setSubdivisions(data);
+      const response = await apiService.getAgencySubdivisions(agencyId);
+      if (response?.success) {
+        setSubdivisions(response.data || []);
+      } else {
+        setSubdivisions([]);
+      }
     } catch (error) {
       console.error('Error loading subdivisions:', error);
+      setSubdivisions([]);
     }
   };
 
@@ -108,7 +113,12 @@ const OfflineDownloadScreen = ({ navigation }) => {
 
       // Download track geometry and mileposts
       const response = await fetch(
-        `${process.env.EXPO_PUBLIC_API_URL}/offline/agency/${selectedAgency}/subdivision/${subdivision.Subdivision_ID}`
+        `${CONFIG.API.BASE_URL}/offline/agency/${selectedAgency}/subdivision/${subdivision.Subdivision_ID}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${user?.token}`
+          }
+        }
       );
 
       if (!response.ok) throw new Error('Download failed');
@@ -248,10 +258,10 @@ const OfflineDownloadScreen = ({ navigation }) => {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Available Subdivisions</Text>
           
-          {subdivisions.length === 0 ? (
+          {Array.isArray(subdivisions) && subdivisions.length === 0 ? (
             <Text style={styles.emptyText}>No subdivisions available</Text>
           ) : (
-            subdivisions.map((subdivision) => {
+            (Array.isArray(subdivisions) ? subdivisions : []).map((subdivision) => {
               const downloaded = isDownloaded(subdivision.Subdivision_ID);
               const downloadInfo = getDownloadInfo(subdivision.Subdivision_ID);
               
@@ -302,12 +312,9 @@ const OfflineDownloadScreen = ({ navigation }) => {
             {Platform.OS === 'ios' ? (
               <ProgressViewIOS progress={downloadProgress} progressTintColor={theme.colors.accent} />
             ) : (
-              <ProgressBarAndroid 
-                styleAttr="Horizontal" 
-                indeterminate={false}
-                progress={downloadProgress}
-                color={theme.colors.accent}
-              />
+              <View style={styles.progressBar}>
+                <View style={[styles.progressBarFill, { width: `${Math.round(downloadProgress * 100)}%` }]} />
+              </View>
             )}
             <Text style={styles.progressPercent}>{Math.round(downloadProgress * 100)}%</Text>
           </View>
@@ -490,6 +497,16 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
     marginTop: theme.spacing.sm,
     textAlign: 'center',
+  },
+  progressBar: {
+    height: 8,
+    backgroundColor: theme.colors.border,
+    borderRadius: theme.borderRadius.sm,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: theme.colors.accent,
   },
   infoCard: {
     flexDirection: 'row',

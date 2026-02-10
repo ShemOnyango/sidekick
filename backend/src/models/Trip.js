@@ -91,7 +91,7 @@ class Trip extends BaseModel {
     
     // Trip Summary Sheet
     const tripSummary = [
-      ['Trip Report - Herzog Rail Authority'],
+      ['Trip Report - Sidekick'],
       [''],
       ['Trip ID:', trip.Trip_ID],
       ['Authority ID:', trip.Authority_ID],

@@ -26,7 +26,7 @@ const EmailTemplateEditor = () => {
   const [subject, setSubject] = useState('Configuration Change Notification');
   const [body, setBody] = useState(`Dear {{clientName}},
 
-A configuration change has been made to your Herzog Rail Authority system:
+A configuration change has been made to your Sidekick system:
 
 Configuration Type: {{configType}}
 Changed Field: {{fieldName}}
@@ -40,7 +40,7 @@ IP Address: {{ipAddress}}
 Please review this change and contact us if you have any questions.
 
 Best regards,
-Herzog Rail Authority System`);
+Sidekick System`);
 
   const [testEmail, setTestEmail] = useState('');
   const [sendingTest, setSendingTest] = useState(false);

@@ -7,7 +7,7 @@ class PinController {
     try {
       const user = req.user;
       const {
-        authorityId,
+        authorityId = null, // Make optional
         pinTypeId,
         latitude,
         longitude,
@@ -18,8 +18,8 @@ class PinController {
         photoUrl = null
       } = req.body;
 
-      if (!authorityId || !pinTypeId || !latitude || !longitude) {
-        return res.status(400).json({ success: false, error: 'Missing required pin fields' });
+      if (!pinTypeId || !latitude || !longitude) {
+        return res.status(400).json({ success: false, error: 'Missing required pin fields (pinTypeId, latitude, longitude)' });
       }
 
       // TODO: verify authority belongs to user's agency or user (authorization checks)
@@ -36,7 +36,11 @@ class PinController {
         photoUrl
       });
 
-      logger.info(`Pin created by user ${user.User_ID} for authority ${authorityId}`);
+      if (authorityId) {
+        logger.info(`Pin created by user ${user.User_ID} for authority ${authorityId}`);
+      } else {
+        logger.info(`Standalone pin created by user ${user.User_ID}`);
+      }
 
       res.json({ success: true, data: created });
     } catch (error) {

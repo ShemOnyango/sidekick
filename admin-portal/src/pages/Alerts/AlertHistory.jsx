@@ -36,8 +36,8 @@ import api from '../../services/api';
 
 const AlertHistory = () => {
   const { user } = useSelector((state) => state.auth);
-  // Use DEFAULT agency (ID 1) for testing
-  const agencyId = 1;
+  // Use user's agency ID
+  const agencyId = user?.Agency_ID || 17;
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -93,7 +93,26 @@ const AlertHistory = () => {
     try {
       const response = await api.get(`/alerts/stats/${agencyId}?startDate=${filters.startDate}&endDate=${filters.endDate}`);
       if (response.data.success) {
-        setStats(response.data.data);
+        const rawStats = response.data.data;
+        
+        // Process summary data to calculate totals
+        const summary = rawStats.summary || [];
+        const processedStats = {
+          total_alerts: summary.reduce((sum, item) => sum + item.count, 0),
+          critical_alerts: summary
+            .filter(item => item.Alert_Level === 'Critical')
+            .reduce((sum, item) => sum + item.count, 0),
+          proximity_alerts: summary
+            .filter(item => item.Alert_Type === 'Proximity')
+            .reduce((sum, item) => sum + item.count, 0),
+          overlap_alerts: summary
+            .filter(item => item.Alert_Type === 'Overlap_Detected')
+            .reduce((sum, item) => sum + item.count, 0),
+          summary: summary,
+          trend: rawStats.trend || []
+        };
+        
+        setStats(processedStats);
       }
     } catch (err) {
       console.error('Failed to load stats:', err);
@@ -344,7 +363,7 @@ const AlertHistory = () => {
               </TableRow>
             ) : (
               alerts.map((alert) => (
-                <TableRow key={alert.Alert_ID} hover>
+                <TableRow key={alert.Alert_Log_ID} hover>
                   <TableCell>
                     {alert.Created_Date ? format(new Date(alert.Created_Date), 'MMM dd, yyyy HH:mm:ss') : 'N/A'}
                   </TableCell>

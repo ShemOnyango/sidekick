@@ -6,10 +6,14 @@ export const fetchAlerts = createAsyncThunk(
   'alerts/fetchAlerts',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await apiService.get('/alerts');
-      return response.data;
+      console.log('Fetching alerts using getUserAlerts');
+      const response = await apiService.getUserAlerts();
+      console.log('Alerts response:', response);
+      return response;
     } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Failed to fetch alerts');
+      console.error('Fetch alerts error:', error);
+      console.error('Error response:', error.response);
+      return rejectWithValue(error.message || 'Failed to fetch alerts');
     }
   }
 );
@@ -30,10 +34,10 @@ export const markAlertAsRead = createAsyncThunk(
   'alerts/markAsRead',
   async (alertId, { rejectWithValue }) => {
     try {
-      const response = await apiService.put(`/alerts/${alertId}/read`);
-      return response.data;
+      const response = await apiService.markAlertAsRead(alertId);
+      return response;
     } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Failed to mark alert as read');
+      return rejectWithValue(error.message || 'Failed to mark alert as read');
     }
   }
 );
@@ -110,8 +114,27 @@ const alertSlice = createSlice({
       })
       .addCase(fetchAlerts.fulfilled, (state, action) => {
         state.loading = false;
-        state.alerts = action.payload;
-        state.unreadAlertsCount = action.payload.filter(a => !a.isRead).length;
+        console.log('fetchAlerts.fulfilled - payload:', action.payload);
+        // API returns { success: true, data: { alerts: [...], count: X, unreadCount: Y } }
+        const responseData = action.payload.data || action.payload;
+        const alertsArray = responseData.alerts || [];
+        
+        // Map backend fields to frontend format
+        state.alerts = alertsArray.map(alert => ({
+          id: alert.Alert_Log_ID,
+          type: alert.Alert_Type,
+          level: alert.Alert_Level,
+          message: alert.Message,
+          authorityId: alert.Authority_ID,
+          triggeredDistance: alert.Triggered_Distance,
+          isRead: alert.Is_Read,
+          isDelivered: alert.Is_Delivered,
+          deliveredTime: alert.Delivered_Time,
+          readTime: alert.Read_Time,
+          createdDate: alert.Created_Date
+        }));
+        
+        state.unreadAlertsCount = responseData.unreadCount || alertsArray.filter(a => !a.Is_Read).length;
       })
       .addCase(fetchAlerts.rejected, (state, action) => {
         state.loading = false;

@@ -28,7 +28,7 @@ export default function PinPicker({ onSelect }) {
       <Text style={styles.title}>Pin Type</Text>
       <FlatList
         data={types}
-        keyExtractor={(i) => String(i.pin_type_id || i.Pin_Type_ID || Math.random())}
+        keyExtractor={(item, index) => String(item.pin_type_id || item.Pin_Type_ID || `pin-type-${index}`)}
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.item} onPress={() => onSelect(item)}>
             <Text style={styles.itemText}>{`${item.pin_category || item.Pin_Category} - ${item.pin_subtype || item.Pin_Subtype}`}</Text>

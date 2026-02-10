@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { sql } = require('../config/database');
 
 /**
  * Track and Milepost Controller
@@ -13,8 +14,9 @@ exports.getMileposts = async (req, res) => {
   try {
     const { subdivisionId } = req.params;
 
-    const result = await db.request()
-      .input('Subdivision_ID', db.sql.Int, subdivisionId)
+    const request = new db.Request();
+    const result = await request
+      .input('Subdivision_ID', db.Int, subdivisionId)
       .query(`
         SELECT 
           Track_Milepost_ID,
@@ -47,10 +49,11 @@ exports.calculateDistance = async (req, res) => {
     const { lat1, lon1, lat2, lon2, subdivisionId, trackType, trackNumber } = req.body;
 
     // Get track geometry
-    const result = await db.request()
-      .input('Subdivision_ID', db.sql.Int, subdivisionId)
-      .input('Track_Type', db.sql.VarChar, trackType)
-      .input('Track_Number', db.sql.VarChar, trackNumber)
+    const request = new db.Request();
+    const result = await request
+      .input('Subdivision_ID', db.Int, subdivisionId)
+      .input('Track_Type', db.VarChar, trackType)
+      .input('Track_Number', db.VarChar, trackNumber)
       .query(`
         SELECT 
           Milepost,
@@ -105,12 +108,21 @@ exports.interpolateMilepost = async (req, res) => {
   try {
     const { latitude, longitude, subdivisionId } = req.body;
 
-    const result = await db.request()
-      .input('Subdivision_ID', db.sql.Int, subdivisionId)
+    // Validate inputs
+    if (!latitude || !longitude || !subdivisionId) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Missing required parameters: latitude, longitude, subdivisionId' 
+      });
+    }
+
+    const request = new db.Request();
+    const result = await request
+      .input('Subdivision_ID', db.Int, subdivisionId)
+      .input('Latitude', sql.Float, latitude)
+      .input('Longitude', sql.Float, longitude)
       .query(`
         SELECT TOP 10
-          Track_Type,
-          Track_Number,
           Milepost,
           Latitude,
           Longitude,
@@ -126,9 +138,7 @@ exports.interpolateMilepost = async (req, res) => {
         FROM Track_Mileposts
         WHERE Subdivision_ID = @Subdivision_ID
         ORDER BY Distance_Miles
-      `)
-      .input('Latitude', db.sql.Float, latitude)
-      .input('Longitude', db.sql.Float, longitude);
+      `);
 
     const nearbyPoints = result.recordset;
 
@@ -142,21 +152,15 @@ exports.interpolateMilepost = async (req, res) => {
     if (closest.Distance_Miles < 0.01) {
       return res.json({
         milepost: parseFloat(closest.Milepost),
-        trackType: closest.Track_Type,
-        trackNumber: closest.Track_Number,
         distance: closest.Distance_Miles,
         method: 'exact',
       });
     }
 
-    // Weighted interpolation using 2 closest points on same track
-    const sameTrack = nearbyPoints.filter(
-      p => p.Track_Type === closest.Track_Type && p.Track_Number === closest.Track_Number
-    );
-
-    if (sameTrack.length >= 2) {
-      const p1 = sameTrack[0];
-      const p2 = sameTrack[1];
+    // Weighted interpolation using 2 closest points
+    if (nearbyPoints.length >= 2) {
+      const p1 = nearbyPoints[0];
+      const p2 = nearbyPoints[1];
       
       const weight1 = 1 / p1.Distance_Miles;
       const weight2 = 1 / p2.Distance_Miles;
@@ -167,8 +171,6 @@ exports.interpolateMilepost = async (req, res) => {
 
       return res.json({
         milepost: Math.round(interpolated * 100) / 100,
-        trackType: closest.Track_Type,
-        trackNumber: closest.Track_Number,
         distance: closest.Distance_Miles,
         method: 'interpolated',
       });
@@ -177,8 +179,6 @@ exports.interpolateMilepost = async (req, res) => {
     // Fallback to closest point
     res.json({
       milepost: parseFloat(closest.Milepost),
-      trackType: closest.Track_Type,
-      trackNumber: closest.Track_Number,
       distance: closest.Distance_Miles,
       method: 'closest',
     });

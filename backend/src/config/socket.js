@@ -5,8 +5,8 @@ let io = null;
 const initializeSocket = (server) => {
   io = socketIo(server, {
     cors: {
-      origin: process.env.NODE_ENV === 'development' 
-        ? ['http://localhost:3000', 'http://localhost:3001'] 
+      origin: process.env.NODE_ENV === 'development'
+        ? true // Allow all origins in development (mobile clients, emulators, web)
         : process.env.CLIENT_URL,
       credentials: true
     },

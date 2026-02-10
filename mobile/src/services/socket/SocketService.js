@@ -7,7 +7,7 @@ import { Alert } from 'react-native';
 class SocketService {
   constructor() {
     this.socket = null;
-    this.isConnected = false;
+    this.connected = false;
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = CONFIG.SOCKET.RECONNECTION_ATTEMPTS;
     this.listeners = new Map();
@@ -15,7 +15,7 @@ class SocketService {
 
   async connect() {
     try {
-      if (this.socket && this.isConnected) {
+      if (this.socket && this.connected) {
         return this.socket;
       }
 
@@ -44,7 +44,7 @@ class SocketService {
 
         this.socket.on('connect', () => {
           console.log('Socket connected');
-          this.isConnected = true;
+          this.connected = true;
           this.reconnectAttempts = 0;
           
           // Join user-specific room
@@ -82,7 +82,7 @@ class SocketService {
 
         // Timeout after 10 seconds
         setTimeout(() => {
-          if (!this.isConnected) {
+          if (!this.connected) {
             reject(new Error('Socket connection timeout'));
           }
         }, 10000);
@@ -99,12 +99,12 @@ class SocketService {
     // Connection events
     this.socket.on('disconnect', (reason) => {
       console.log('Socket disconnected:', reason);
-      this.isConnected = false;
+      this.connected = false;
     });
 
     this.socket.on('reconnect', (attemptNumber) => {
       console.log('Socket reconnected after', attemptNumber, 'attempts');
-      this.isConnected = true;
+      this.connected = true;
     });
 
     this.socket.on('reconnect_attempt', (attemptNumber) => {
@@ -118,7 +118,7 @@ class SocketService {
 
     this.socket.on('reconnect_failed', () => {
       console.error('Socket reconnection failed');
-      this.isConnected = false;
+      this.connected = false;
     });
 
     // Application events
@@ -294,14 +294,23 @@ class SocketService {
   }
 
   // Emit methods
+  emit(event, data) {
+    if (this.socket && this.connected) {
+      this.socket.emit(event, data);
+      return true;
+    }
+    console.warn(`Cannot emit ${event}: socket not connected`);
+    return false;
+  }
+
   emitLocationUpdate(locationData) {
-    if (this.socket && this.isConnected) {
+    if (this.socket && this.connected) {
       this.socket.emit('location-update', locationData);
     }
   }
 
   emitAuthorityUpdate(authorityData) {
-    if (this.socket && this.isConnected) {
+    if (this.socket && this.connected) {
       this.socket.emit('authority-update', authorityData);
     }
   }
@@ -311,13 +320,13 @@ class SocketService {
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
-      this.isConnected = false;
+      this.connected = false;
       this.listeners.clear();
     }
   }
 
   isConnected() {
-    return this.isConnected;
+    return this.connected;
   }
 
   // Reconnection

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,7 +7,10 @@ import {
   Text,
   Alert,
   ActivityIndicator,
+  Switch,
+  Linking,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSelector, useDispatch } from 'react-redux';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -16,14 +19,23 @@ import { getActiveAuthority } from '../../store/slices/authoritySlice';
 import { saveGPSLog } from '../../store/slices/gpsSlice';
 import socketService from '../../services/socket/SocketService';
 import apiService from '../../services/api/ApiService';
+import gpsTrackingService from '../../services/gps/GPSTrackingService';
 import MilepostDisplay from '../../components/map/MilepostDisplay';
 import BoundaryIndicator from '../../components/map/BoundaryIndicator';
-import { 
+import OfflineIndicator from '../../components/common/OfflineIndicator';
+import GPSAccuracyIndicator from '../../components/map/GPSAccuracyIndicator';
+import {
   getCurrentTrack,
   checkAuthorityBoundaries,
   calculateBearing,
   interpolateMilepost
 } from '../../utils/trackGeometry';
+import { CONFIG } from '../../constants/config';
+import { getMapStyleById } from '../../constants/mapStyles';
+import permissionManager from '../../utils/permissionManager';
+import logger from '../../utils/logger';
+import { setLayerVisibility } from '../../store/slices/mapSlice';
+import { useIsFocused } from '@react-navigation/native';
 import { 
   COLORS, 
   SPACING, 
@@ -35,12 +47,48 @@ import {
 
 const { width, height } = Dimensions.get('window');
 
+// Dark map style to match screenshots
+const customMapStyle = [
+  {
+    "elementType": "geometry",
+    "stylers": [{ "color": "#242f3e" }]
+  },
+  {
+    "elementType": "labels.text.fill",
+    "stylers": [{ "color": "#746855" }]
+  },
+  {
+    "elementType": "labels.text.stroke",
+    "stylers": [{ "color": "#242f3e" }]
+  },
+  {
+    "featureType": "road",
+    "elementType": "geometry",
+    "stylers": [{ "color": "#38414e" }]
+  },
+  {
+    "featureType": "road",
+    "elementType": "geometry.stroke",
+    "stylers": [{ "color": "#212a37" }]
+  },
+  {
+    "featureType": "water",
+    "elementType": "geometry",
+    "stylers": [{ "color": "#17263c" }]
+  }
+];
+
 const MapScreen = () => {
   const dispatch = useDispatch();
   const mapRef = useRef(null);
+  const layerFetchTimeout = useRef(null);
+  const isMounted = useRef(true);
+  const isFocused = useIsFocused();
   
   const { user } = useSelector((state) => state.auth);
   const { currentAuthority } = useSelector((state) => state.authority);
+  const mapStyleId = useSelector((state) => state.map.mapStyleId);
+  const storedLayerVisibility = useSelector((state) => state.map.layerVisibility || {});
   const { currentPosition, isTracking } = useSelector((state) => state.gps);
   
   const [region, setRegion] = useState({
@@ -51,10 +99,19 @@ const MapScreen = () => {
   });
   
   const [followMode, setFollowMode] = useState(false);
-  const [showControls, setShowControls] = useState(true);
+  const [showControls, setShowControls] = useState(false);
   const [trackGeometry, setTrackGeometry] = useState([]);
   const [otherWorkers, setOtherWorkers] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [gpsActive, setGpsActive] = useState(false);
+  const [compassEnabled, setCompassEnabled] = useState(false);
+  const [nearestRailroadAddress, setNearestRailroadAddress] = useState('None found');
+  const [loadingRailroadAddress, setLoadingRailroadAddress] = useState(false);
+  const [isGpsCardMinimized, setIsGpsCardMinimized] = useState(false);
+  const [layers, setLayers] = useState([]);
+  const [layersLoading, setLayersLoading] = useState(false);
+  const [layerData, setLayerData] = useState({});
+  const [layerVisibility, setLocalLayerVisibility] = useState({});
   
   // New Follow-Me mode state
   const [currentMilepost, setCurrentMilepost] = useState(null);
@@ -67,10 +124,20 @@ const MapScreen = () => {
   const [subdivision, setSubdivision] = useState(null);
   const [withinBoundaries, setWithinBoundaries] = useState(true);
   const previousPosition = useRef(null);
+  const hasLoadedAuthority = useRef(false);
 
   // Load active authority on mount
   useEffect(() => {
-    loadActiveAuthority();
+    // Only load authority if user is logged in
+    if (!hasLoadedAuthority.current && user?.token) {
+      hasLoadedAuthority.current = true;
+      loadActiveAuthority();
+    }
+    
+    // Reset flag if user logs out
+    if (!user?.token) {
+      hasLoadedAuthority.current = false;
+    }
     
     // Setup socket listeners
     socketService.on('user_location_update', handleUserLocationUpdate);
@@ -82,7 +149,53 @@ const MapScreen = () => {
     };
   }, []);
 
+  // Sync GPS active state with tracking status
+  useEffect(() => {
+    setGpsActive(isTracking);
+    
+    // Verify GPS is actually enabled when tracking starts
+    if (isTracking) {
+      verifyGPSStatus();
+    }
+  }, [isTracking]);
+
+  // Verify GPS status
+  const verifyGPSStatus = async () => {
+    try {
+      const { granted } = await Location.getForegroundPermissionsAsync();
+      
+      if (!granted) {
+        Alert.alert(
+          'GPS Permission Required',
+          'Sidekick needs location permission to track your position on the tracks.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Grant Permission',
+              onPress: async () => {
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                  Alert.alert('Permission Denied', 'GPS tracking requires location permission.');
+                }
+              },
+            },
+          ]
+        );
+      } else {
+        logger.info('GPS', 'GPS permissions verified - tracking enabled');
+      }
+    } catch (error) {
+      logger.error('GPS', 'Failed to verify GPS status', error);
+    }
+  };
+
   // Load milepost data when authority changes
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     if (currentAuthority && currentAuthority.Subdivision_ID) {
       loadMilepostData(currentAuthority.Subdivision_ID);
@@ -90,12 +203,101 @@ const MapScreen = () => {
     }
   }, [currentAuthority]);
 
+  // Load layer list when screen mounts or authority changes
+  useEffect(() => {
+    if (isFocused) {
+      loadLayers();
+    }
+  }, [currentAuthority?.Subdivision_ID, isFocused]);
+
+  // Sync local visibility when store visibility updates
+  useEffect(() => {
+    if (!storedLayerVisibility || Object.keys(storedLayerVisibility).length === 0) return;
+    setLocalLayerVisibility((prev) => ({ ...prev, ...storedLayerVisibility }));
+  }, [storedLayerVisibility]);
+
+  // Load visible layers when region changes (debounced)
+  useEffect(() => {
+    if (!layers.length) return;
+    if (layerFetchTimeout.current) {
+      clearTimeout(layerFetchTimeout.current);
+    }
+    layerFetchTimeout.current = setTimeout(() => {
+      if (isFocused) {
+        loadVisibleLayerData();
+      }
+    }, 500);
+    return () => {
+      if (layerFetchTimeout.current) {
+        clearTimeout(layerFetchTimeout.current);
+      }
+    };
+  }, [region, layers, layerVisibility, storedLayerVisibility, isFocused]);
+
   // Update milepost and boundaries when position changes
   useEffect(() => {
     if (currentPosition && mileposts.length > 0) {
       updateTrackingInfo();
     }
+    
+    // Fetch nearest railroad address from API
+    if (currentPosition && currentAuthority) {
+      fetchNearestRailroadAddress();
+    }
   }, [currentPosition, mileposts]);
+
+  // Fetch nearest railroad address from backend API
+  const fetchNearestRailroadAddress = async () => {
+    try {
+      // Check if we have required data
+      if (!currentAuthority || !currentAuthority.Subdivision_ID) {
+        setNearestRailroadAddress('No active authority');
+        return;
+      }
+
+      setLoadingRailroadAddress(true);
+      
+      const response = await apiService.api.post('/tracks/interpolate-milepost', {
+        latitude: currentPosition.latitude,
+        longitude: currentPosition.longitude,
+        subdivisionId: currentAuthority.Subdivision_ID,
+      });
+      
+      if (response.data) {
+        const { milepost, distance } = response.data;
+        
+        // Only show railroad address if within reasonable distance (e.g., 0.5 miles)
+        if (distance && distance <= 0.5) {
+          // Use track info from authority, milepost from API
+          const trackType = currentAuthority.Track_Type || 'Track';
+          const trackNumber = currentAuthority.Track_Number || '';
+          const address = `${trackType} ${trackNumber}, MP ${milepost.toFixed(2)}`.trim();
+          setNearestRailroadAddress(address);
+          logger.info('GPS', 'Nearest railroad address found', { address, distance });
+        } else {
+          setNearestRailroadAddress('None found');
+          logger.info('GPS', 'No railroad address nearby', { distance });
+        }
+      }
+      
+      setLoadingRailroadAddress(false);
+    } catch (error) {
+      logger.error('GPS', 'Failed to fetch nearest railroad address', error);
+      setLoadingRailroadAddress(false);
+      setNearestRailroadAddress('None found');
+      
+      // Fall back to local calculation if API fails
+      if (currentPosition && mileposts.length > 0) {
+        const trackInfo = getCurrentTrack(currentPosition.latitude, currentPosition.longitude, mileposts);
+        if (trackInfo) {
+          const trackType = currentAuthority.Track_Type || trackInfo.trackType || 'Track';
+          const trackNumber = currentAuthority.Track_Number || trackInfo.trackNumber || '';
+          const address = `${trackType} ${trackNumber}, MP ${trackInfo.milepost.toFixed(2)}`.trim();
+          setNearestRailroadAddress(address);
+        }
+      }
+    }
+  };
 
   // Update map when position changes in follow mode
   useEffect(() => {
@@ -123,7 +325,19 @@ const MapScreen = () => {
   const loadActiveAuthority = async () => {
     try {
       setIsLoading(true);
-      await dispatch(getActiveAuthority()).unwrap();
+      const authority = await dispatch(getActiveAuthority()).unwrap();
+      
+      // Start GPS tracking if authority exists and tracking not already started
+      if (authority && !isTracking) {
+        try {
+          await gpsTrackingService.init();
+          await gpsTrackingService.startTracking(authority);
+          console.log('GPS tracking started for existing authority:', authority.Authority_ID);
+        } catch (error) {
+          console.error('Failed to start GPS tracking:', error);
+        }
+      }
+      
       setIsLoading(false);
     } catch (error) {
       console.error('Failed to load authority:', error);
@@ -133,16 +347,113 @@ const MapScreen = () => {
 
   const loadMilepostData = async (subdivisionId) => {
     try {
-      const response = await fetch(
-        `${process.env.EXPO_PUBLIC_API_URL}/offline/subdivision/${subdivisionId}`
+      const response = await apiService.api.get(
+        `/offline/subdivision/${subdivisionId}`
       );
-      const data = await response.json();
-      if (data.mileposts) {
-        setMileposts(data.mileposts);
+      if (!isMounted.current) return;
+      if (response.data?.data?.mileposts) {
+        setMileposts(response.data.data.mileposts);
+      } else if (response.data?.mileposts) {
+        setMileposts(response.data.mileposts);
       }
     } catch (error) {
       console.error('Failed to load milepost data:', error);
     }
+  };
+
+  const loadLayers = async () => {
+    if (layersLoading) return;
+    setLayersLoading(true);
+    try {
+      const data = await apiService.getMapLayers({
+        subdivisionId: currentAuthority?.Subdivision_ID || undefined,
+      });
+      const list = data?.layers || [];
+      if (!isMounted.current) return;
+      setLayers(list);
+
+      const hasStored = Object.keys(storedLayerVisibility).length > 0;
+      const visibility = {};
+      list.forEach((layer) => {
+        const defaultValue = hasStored ? Boolean(storedLayerVisibility[layer.id]) : layer.count > 0;
+        visibility[layer.id] = defaultValue;
+        if (!hasStored) {
+          dispatch(setLayerVisibility({ layerId: layer.id, value: defaultValue }));
+        }
+      });
+      setLocalLayerVisibility(visibility);
+    } catch (error) {
+      console.error('Failed to load map layers:', error);
+    } finally {
+      if (isMounted.current) {
+        setLayersLoading(false);
+      }
+    }
+  };
+
+  const getLayerStyle = (layer) => {
+    if (layer.id === 'mileposts') {
+      return { color: '#FFD100', icon: 'numeric-9-plus-box' };
+    }
+    if (layer.id === 'tracks') {
+      return { color: '#00C2FF', icon: 'train-variant' };
+    }
+    if (layer.id === 'signals') return { color: '#4CD964', icon: 'signal-variant' };
+    if (layer.id === 'road-crossings') return { color: '#FF9500', icon: 'road-variant' };
+    if (layer.id === 'rail-crossings') return { color: '#FF9500', icon: 'transit-connection-variant' };
+    if (layer.id === 'bridges') return { color: '#5AC8FA', icon: 'bridge' };
+    if (layer.id === 'tunnels') return { color: '#AF52DE', icon: 'tunnel' };
+    if (layer.id === 'stations') return { color: '#34C759', icon: 'train' };
+    if (layer.id === 'turnouts') return { color: '#FFD60A', icon: 'swap-horizontal' };
+    if (layer.id === 'detectors') return { color: '#FF453A', icon: 'radar' };
+    if (layer.id === 'derails') return { color: '#FF453A', icon: 'alert' };
+    if (layer.id === 'snowsheds') return { color: '#64D2FF', icon: 'weather-snowy' };
+    if (layer.id === 'arches') return { color: '#FFD60A', icon: 'arch' };
+    if (layer.id === 'culverts') return { color: '#30B0C7', icon: 'pipe' };
+    if (layer.id === 'depots') return { color: '#34C759', icon: 'warehouse' };
+    if (layer.id === 'control-points') return { color: '#FF9F0A', icon: 'crosshairs-gps' };
+    return { color: '#FF7A00', icon: 'map-marker-radius' };
+  };
+
+  const loadLayerData = async (layerId, bounds) => {
+    try {
+      const data = await apiService.getMapLayerData(layerId, {
+        subdivisionId: currentAuthority?.Subdivision_ID || undefined,
+        limit: 2000,
+        ...bounds,
+      });
+      if (!isMounted.current) return;
+      setLayerData((prev) => ({
+        ...prev,
+        [layerId]: data?.features || [],
+      }));
+    } catch (error) {
+      console.error(`Failed to load layer data for ${layerId}:`, error);
+    }
+  };
+
+  const loadVisibleLayerData = async () => {
+    const visibility = Object.keys(storedLayerVisibility).length
+      ? storedLayerVisibility
+      : layerVisibility;
+    const visibleLayerIds = layers
+      .filter((layer) => visibility[layer.id])
+      .map((layer) => layer.id);
+
+    if (visibleLayerIds.length === 0) return;
+
+    const latDelta = region.latitudeDelta || 0.05;
+    const lngDelta = region.longitudeDelta || 0.05;
+    const bounds = {
+      minLat: region.latitude - latDelta * 0.6,
+      maxLat: region.latitude + latDelta * 0.6,
+      minLng: region.longitude - lngDelta * 0.6,
+      maxLng: region.longitude + lngDelta * 0.6,
+    };
+
+    await Promise.all(
+      visibleLayerIds.map((layerId) => loadLayerData(layerId, bounds))
+    );
   };
 
   const updateTrackingInfo = () => {
@@ -153,10 +464,19 @@ const MapScreen = () => {
     
     if (trackInfo) {
       setCurrentMilepost(trackInfo.milepost);
+      
+      // Use track info from authority if available, otherwise from trackGeometry calculation
+      const trackType = currentAuthority?.Track_Type || trackInfo.trackType || 'Track';
+      const trackNumber = currentAuthority?.Track_Number || trackInfo.trackNumber || '';
+      
       setCurrentTrack({
-        type: trackInfo.trackType,
-        number: trackInfo.trackNumber,
+        type: trackType,
+        number: trackNumber,
       });
+      
+      // Update nearest railroad address
+      const address = `${trackType} ${trackNumber}, MP ${trackInfo.milepost.toFixed(2)}`.trim();
+      setNearestRailroadAddress(address);
       
       // Calculate heading if we have previous position
       if (previousPosition.current) {
@@ -192,6 +512,8 @@ const MapScreen = () => {
           console.warn('Outside authority boundaries:', boundaryCheck.reason);
         }
       }
+    } else {
+      setNearestRailroadAddress('None found');
     }
     
     previousPosition.current = {
@@ -255,9 +577,9 @@ const MapScreen = () => {
 
   const centerOnCurrentLocation = async () => {
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      const granted = await permissionManager.requestLocationPermission(false);
       
-      if (status !== 'granted') {
+      if (!granted) {
         Alert.alert(
           'Permission Required',
           'Location permission is required to center on your position.'
@@ -281,10 +603,10 @@ const MapScreen = () => {
   };
 
   const centerOnAuthority = () => {
-    if (currentAuthority && currentAuthority.begin_mp && currentAuthority.end_mp) {
+    if (currentAuthority && currentAuthority.Begin_MP && currentAuthority.End_MP) {
       // Calculate center of authority
-      const centerLat = (currentAuthority.begin_lat + currentAuthority.end_lat) / 2;
-      const centerLng = (currentAuthority.begin_lng + currentAuthority.end_lng) / 2;
+      const centerLat = (currentAuthority.Begin_Lat + currentAuthority.End_Lat) / 2;
+      const centerLng = (currentAuthority.Begin_Lng + currentAuthority.End_Lng) / 2;
       
       mapRef.current?.animateToRegion({
         latitude: centerLat,
@@ -301,10 +623,10 @@ const MapScreen = () => {
     // This would use actual track geometry data
     // For now, create a simple line
     const coordinates = [
-      { latitude: currentAuthority.begin_lat || region.latitude - 0.01, 
-        longitude: currentAuthority.begin_lng || region.longitude - 0.01 },
-      { latitude: currentAuthority.end_lat || region.latitude + 0.01, 
-        longitude: currentAuthority.end_lng || region.longitude + 0.01 },
+      { latitude: currentAuthority.Begin_Lat || region.latitude - 0.01, 
+        longitude: currentAuthority.Begin_Lng || region.longitude - 0.01 },
+      { latitude: currentAuthority.End_Lat || region.latitude + 0.01, 
+        longitude: currentAuthority.End_Lng || region.longitude + 0.01 },
     ];
 
     return (
@@ -335,50 +657,214 @@ const MapScreen = () => {
     ));
   };
 
+  const layerMarkers = useMemo(() => {
+    const markers = [];
+    const visibility = Object.keys(storedLayerVisibility).length
+      ? storedLayerVisibility
+      : layerVisibility;
+
+    layers.forEach((layer) => {
+      if (!visibility[layer.id]) return;
+      const features = layerData[layer.id] || [];
+      const style = getLayerStyle(layer);
+      features.forEach((feature, index) => {
+        if (feature.Latitude == null || feature.Longitude == null) return;
+        markers.push({
+          key: `${layer.id}-${feature.Track_ID || feature.Milepost_ID || index}`,
+          latitude: Number(feature.Latitude),
+          longitude: Number(feature.Longitude),
+          title: feature.Asset_Name || layer.label,
+          description: feature.MP ? `MP ${feature.MP}` : feature.Asset_Type || layer.label,
+          color: style.color,
+          icon: style.icon,
+        });
+      });
+    });
+    return markers;
+  }, [layers, layerData, layerVisibility, storedLayerVisibility]);
+
   const renderControls = () => {
     if (!showControls) return null;
 
     return (
-      <View style={styles.controlsContainer}>
-        <TouchableOpacity
-          style={[styles.controlButton, followMode && styles.controlButtonActive]}
-          onPress={toggleFollowMode}
-        >
-          <Icon
-            name={followMode ? 'crosshairs-gps' : 'crosshairs'}
-            size={24}
-            color={followMode ? '#000000' : '#FFFFFF'}
+      <View style={styles.controlsCard}>
+        {/* GPS Active Toggle with Minimize Button */}
+        <View style={styles.controlRow}>
+          <Text style={styles.controlLabel}>GPS Active</Text>
+          <View style={styles.controlRowRight}>
+            <Switch
+              value={gpsActive}
+              onValueChange={async (value) => {
+              if (value) {
+                // Enable GPS tracking
+                try {
+                  // First check if we have location permissions
+                  const { status: foregroundStatus } = await Location.getForegroundPermissionsAsync();
+                  
+                  if (foregroundStatus !== 'granted') {
+                    const { status } = await Location.requestForegroundPermissionsAsync();
+                    if (status !== 'granted') {
+                      Alert.alert(
+                        'Permission Required',
+                        'Sidekick needs location permission to track your position on the tracks. Please enable location access in your device settings.',
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+                        ]
+                      );
+                      return;
+                    }
+                  }
+                  
+                  // Check if we have an active authority
+                  if (!currentAuthority) {
+                    Alert.alert(
+                      'No Active Authority',
+                      'You need to enter an authority before enabling GPS tracking.',
+                      [{ text: 'OK' }]
+                    );
+                    return;
+                  }
+                  
+                  // Initialize and start GPS tracking
+                  await gpsTrackingService.init();
+                  await gpsTrackingService.startTracking(currentAuthority);
+                  setGpsActive(true);
+                  logger.info('GPS', 'GPS tracking enabled successfully');
+                  
+                  Alert.alert('GPS Enabled', 'Location tracking is now active.');
+                } catch (error) {
+                  logger.error('GPS', 'Failed to enable GPS tracking', error);
+                  Alert.alert(
+                    'GPS Error',
+                    error.message || 'Failed to enable GPS tracking. Please try again.',
+                    [{ text: 'OK' }]
+                  );
+                  setGpsActive(false);
+                }
+              } else {
+                // Disable GPS tracking
+                try {
+                  await gpsTrackingService.stopTracking();
+                  setGpsActive(false);
+                  setNearestRailroadAddress('None found');
+                  logger.info('GPS', 'GPS tracking disabled');
+                  
+                  Alert.alert('GPS Disabled', 'Location tracking has been stopped.');
+                } catch (error) {
+                  logger.error('GPS', 'Failed to stop GPS tracking', error);
+                }
+              }
+            }}
+            trackColor={{ false: '#CCCCCC', true: '#34C759' }}
+            thumbColor={gpsActive ? '#FFFFFF' : '#F4F3F4'}
+            ios_backgroundColor="#CCCCCC"
           />
-          <Text style={[styles.controlText, followMode && styles.controlTextActive]}>
-            {followMode ? 'Following' : 'Follow Me'}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.controlButton}
-          onPress={centerOnCurrentLocation}
-        >
-          <MaterialCommunityIcons name="target" size={24} color="#FFFFFF" />
-          <Text style={styles.controlText}>My Location</Text>
-        </TouchableOpacity>
-
-        {currentAuthority && (
-          <TouchableOpacity
-            style={styles.controlButton}
-            onPress={centerOnAuthority}
+          <TouchableOpacity 
+            style={styles.minimizeButton}
+            onPress={() => setIsGpsCardMinimized(!isGpsCardMinimized)}
           >
-            <MaterialCommunityIcons name="vector-line" size={24} color="#FFFFFF" />
-            <Text style={styles.controlText}>Authority</Text>
+            <MaterialCommunityIcons 
+              name={isGpsCardMinimized ? 'chevron-down' : 'chevron-up'} 
+              size={20} 
+              color="#666666" 
+            />
           </TouchableOpacity>
-        )}
+          </View>
+        </View>
 
-        <TouchableOpacity
-          style={styles.controlButton}
-          onPress={() => setShowControls(false)}
-        >
-          <MaterialCommunityIcons name="chevron-down" size={24} color="#FFFFFF" />
-          <Text style={styles.controlText}>Hide</Text>
-        </TouchableOpacity>
+        {/* Show full content only when not minimized */}
+        {!isGpsCardMinimized && (
+          <>
+        {/* Action Buttons Row */}
+        <View style={styles.actionButtonsRow}>
+          <TouchableOpacity 
+            style={[styles.actionButton, compassEnabled && styles.actionButtonActive]}
+            onPress={() => {
+              setCompassEnabled(!compassEnabled);
+            }}
+          >
+            <MaterialCommunityIcons 
+              name="compass-outline" 
+              size={20} 
+              color={compassEnabled ? '#FFD100' : '#666666'} 
+            />
+            <Text style={[styles.actionButtonText, compassEnabled && styles.actionButtonTextActive]}>
+              Compass
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.actionButton, followMode && styles.actionButtonActive]}
+            onPress={toggleFollowMode}
+          >
+            <MaterialCommunityIcons 
+              name="crosshairs-gps" 
+              size={20} 
+              color={followMode ? '#FFD100' : '#666666'} 
+            />
+            <Text style={[styles.actionButtonText, followMode && styles.actionButtonTextActive]}>
+              Follow Me
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={centerOnCurrentLocation}
+          >
+            <MaterialCommunityIcons 
+              name="target" 
+              size={20} 
+              color="#666666" 
+            />
+            <Text style={styles.actionButtonText}>Re-center</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Divider */}
+        <View style={styles.divider} />
+
+        {/* Coordinates Section */}
+        <View style={styles.infoSection}>
+          <View style={styles.infoHeader}>
+            <MaterialCommunityIcons name="map-marker" size={16} color="#666666" />
+            <Text style={styles.infoLabel}>Coordinates</Text>
+          </View>
+          {currentPosition ? (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoValue}>
+                {currentPosition.latitude.toFixed(6)}, {currentPosition.longitude.toFixed(6)}
+              </Text>
+              <TouchableOpacity style={styles.iconButton}>
+                <MaterialCommunityIcons name="content-copy" size={18} color="#FFD100" />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Text style={styles.infoPlaceholder}>Waiting for location...</Text>
+          )}
+        </View>
+
+        {/* Nearest Railroad Address Section */}
+        <View style={styles.infoSection}>
+          <View style={styles.infoHeader}>
+            <MaterialCommunityIcons name="train" size={16} color="#666666" />
+            <Text style={styles.infoLabel}>Nearest Railroad Address</Text>
+          </View>
+          <View style={styles.infoRow}>
+            {loadingRailroadAddress ? (
+              <ActivityIndicator size="small" color="#FFD100" />
+            ) : (
+              <Text style={styles.infoValue}>{nearestRailroadAddress}</Text>
+            )}
+            {nearestRailroadAddress !== 'None found' && !loadingRailroadAddress && (
+              <TouchableOpacity style={styles.iconButton}>
+                <MaterialCommunityIcons name="content-copy" size={18} color="#FFD100" />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+        </>
+        )}
       </View>
     );
   };
@@ -395,13 +881,13 @@ const MapScreen = () => {
         
         <View style={styles.authorityDetails}>
           <Text style={styles.authorityText}>
-            {currentAuthority.subdivision_code}: {currentAuthority.track_type} {currentAuthority.track_number}
+            {currentAuthority.Subdivision_Code || currentAuthority.Subdivision_Name}: {currentAuthority.Track_Type} {currentAuthority.Track_Number}
           </Text>
           <Text style={styles.authorityText}>
-            MP {currentAuthority.begin_mp} to {currentAuthority.end_mp}
+            MP {currentAuthority.Begin_MP} to {currentAuthority.End_MP}
           </Text>
           <Text style={styles.authorityText}>
-            Started: {new Date(currentAuthority.start_time).toLocaleTimeString()}
+            Started: {currentAuthority.Start_Time ? new Date(currentAuthority.Start_Time).toLocaleTimeString() : 'Invalid Date'}
           </Text>
         </View>
         
@@ -430,12 +916,16 @@ const MapScreen = () => {
     );
   }
 
+  const selectedStyle = getMapStyleById(mapStyleId);
+
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <MapView
         ref={mapRef}
         style={styles.map}
         provider={PROVIDER_GOOGLE}
+        mapType={selectedStyle.mapType}
+        customMapStyle={selectedStyle.customStyle || customMapStyle}
         region={region}
         onRegionChangeComplete={setRegion}
         showsUserLocation={true}
@@ -446,6 +936,22 @@ const MapScreen = () => {
         loadingIndicatorColor="#FFD100"
         loadingBackgroundColor="#000000"
       >
+        {/* Layer markers */}
+        {layerMarkers.map((marker) => (
+          <Marker
+            key={marker.key}
+            coordinate={{ latitude: marker.latitude, longitude: marker.longitude }}
+            title={marker.title}
+            description={marker.description}
+            pinColor={marker.color}
+            tracksViewChanges={false}
+          >
+            <View style={[styles.layerMarker, { borderColor: marker.color }]}>
+              <MaterialCommunityIcons name={marker.icon} size={16} color={marker.color} />
+            </View>
+          </Marker>
+        ))}
+
         {/* Authority boundaries */}
         {renderAuthorityBoundaries()}
         
@@ -469,6 +975,17 @@ const MapScreen = () => {
         )}
       </MapView>
 
+      {/* Offline Indicator */}
+      <View style={styles.offlineContainer}>
+        <OfflineIndicator />
+      </View>
+
+      {/* GPS Accuracy Indicator */}
+      <GPSAccuracyIndicator 
+        accuracy={currentPosition?.coords?.accuracy || currentPosition?.accuracy}
+        show={true}
+      />
+
       {/* Milepost Display - shown in Follow-Me mode */}
       {followMode && currentPosition && (
         <MilepostDisplay
@@ -490,22 +1007,24 @@ const MapScreen = () => {
         />
       )}
 
-      {/* Controls */}
-      {renderControls()}
+      {/* GPS Controls Panel */}
+      {showControls && renderControls()}
       
       {/* Authority info panel */}
       {!followMode && renderAuthorityInfo()}
       
-      {/* Show controls button (when hidden) */}
-      {!showControls && (
-        <TouchableOpacity
-          style={styles.showControlsButton}
-          onPress={() => setShowControls(true)}
-        >
-          <MaterialCommunityIcons name="chevron-up" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-      )}
-    </View>
+      {/* GPS Controls Toggle Button */}
+      <TouchableOpacity
+        style={styles.gpsToggleButton}
+        onPress={() => setShowControls((prev) => !prev)}
+      >
+        <MaterialCommunityIcons
+          name={showControls ? 'close' : 'satellite-variant'}
+          size={22}
+          color="#FFFFFF"
+        />
+      </TouchableOpacity>
+    </SafeAreaView>
   );
 };
 
@@ -529,81 +1048,179 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
   },
-  controlsContainer: {
+  offlineContainer: {
     position: 'absolute',
     top: 20,
-    right: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    borderRadius: 10,
-    padding: 10,
-    minWidth: 120,
+    left: 20,
+    right: 100,
+    zIndex: 1000,
   },
-  controlButton: {
+  
+  // New White Control Card Styles
+  controlsCard: {
+    position: 'absolute',
+    top: 80,
+    left: 20,
+    right: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  controlRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 0,
+    paddingBottom: 0,
+  },
+  controlRowRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 10,
-    borderRadius: 6,
-    marginBottom: 5,
-    backgroundColor: '#333333',
+    gap: 8,
   },
-  controlButtonActive: {
-    backgroundColor: '#FFD100',
-  },
-  controlText: {
-    color: '#FFFFFF',
-    marginLeft: 8,
-    fontSize: 14,
+  controlLabel: {
+    fontSize: 15,
+    color: '#000000',
     fontWeight: '600',
   },
-  controlTextActive: {
-    color: '#000000',
+  minimizeButton: {
+    padding: 4,
   },
-  showControlsButton: {
+  actionButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 6,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E5E5',
+    marginBottom: 10,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderRadius: 6,
+    backgroundColor: '#F5F5F5',
+    gap: 4,
+  },
+  actionButtonActive: {
+    backgroundColor: '#FFF9E6',
+    borderWidth: 1,
+    borderColor: '#FFD100',
+  },
+  actionButtonText: {
+    fontSize: 12,
+    color: '#666666',
+    fontWeight: '500',
+  },
+  actionButtonTextActive: {
+    color: '#FFD100',
+    fontWeight: '600',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#E5E5E5',
+    marginVertical: 10,
+  },
+  infoSection: {
+    marginBottom: 10,
+  },
+  infoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 6,
+  },
+  infoLabel: {
+    fontSize: 12,
+    color: '#666666',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#F9F9F9',
+    padding: 8,
+    borderRadius: 6,
+  },
+  infoValue: {
+    fontSize: 12,
+    color: '#000000',
+    flex: 1,
+    fontWeight: '500',
+  },
+  infoPlaceholder: {
+    fontSize: 13,
+    color: '#999999',
+    fontStyle: 'italic',
+    backgroundColor: '#F9F9F9',
+    padding: 10,
+    borderRadius: 6,
+  },
+  iconButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  gpsToggleButton: {
     position: 'absolute',
     top: 20,
-    right: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    borderRadius: 20,
+    left: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    borderRadius: 18,
     padding: 10,
+    borderWidth: 1,
+    borderColor: '#FFD100',
   },
   authorityInfo: {
     position: 'absolute',
-    bottom: 20,
+    bottom: 100,
     left: 20,
     right: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-    borderRadius: 10,
-    padding: 15,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    borderRadius: 8,
+    padding: 12,
     borderWidth: 2,
     borderColor: '#FFD100',
   },
   authorityHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   authorityTitle: {
     color: '#FFD100',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
-    marginLeft: 10,
+    marginLeft: 8,
   },
   authorityDetails: {
-    marginBottom: 10,
+    marginBottom: 8,
   },
   authorityText: {
     color: '#FFFFFF',
-    fontSize: 14,
-    marginBottom: 3,
+    fontSize: 13,
+    marginBottom: 2,
   },
   positionInfo: {
     borderTopWidth: 1,
     borderTopColor: '#333333',
-    paddingTop: 10,
+    paddingTop: 8,
   },
   positionText: {
     color: '#CCCCCC',
-    fontSize: 12,
+    fontSize: 11,
     marginBottom: 2,
   },
   myMarker: {
@@ -620,6 +1237,13 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#FF0000',
   },
+  layerMarker: {
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    borderRadius: 12,
+    padding: 4,
+    borderWidth: 1,
+  },
 });
 
 export default MapScreen;
+

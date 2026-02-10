@@ -62,7 +62,8 @@ class Authority extends BaseModel {
         s.Subdivision_Name,
         ag.Agency_CD,
         ag.Agency_Name,
-        DATEDIFF(MINUTE, a.Start_Time, GETDATE()) AS Minutes_Active
+        DATEDIFF(MINUTE, a.Start_Time, GETDATE()) AS Minutes_Active,
+        (SELECT COUNT(*) FROM Pins p WHERE p.Authority_ID = a.Authority_ID) AS Pin_Count
       FROM Authorities a
       INNER JOIN Users u ON a.User_ID = u.User_ID
       INNER JOIN Subdivisions s ON a.Subdivision_ID = s.Subdivision_ID

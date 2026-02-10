@@ -233,7 +233,7 @@ SMTP_USER=noreply@example.com
 SMTP_PASSWORD=your_password
 
 # Email Settings
-EMAIL_FROM_NAME=Herzog Rail Authority System
+EMAIL_FROM_NAME=Sidekick System
 EMAIL_FROM_ADDRESS=noreply@example.com
 ```
 

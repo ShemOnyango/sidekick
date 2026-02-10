@@ -50,120 +50,76 @@ class DatabaseService {
 
   // User operations
   async saveUser(userData) {
-    const query = `
-      INSERT OR REPLACE INTO users (
-        user_id, username, employee_name, employee_contact, email,
-        role, agency_id, agency_code, agency_name, token,
-        is_active, last_login
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-
-    const params = [
-      userData.User_ID,
-      userData.Username,
-      userData.Employee_Name,
-      userData.Employee_Contact,
-      userData.Email,
-      userData.Role,
-      userData.Agency_ID,
-      userData.Agency_CD,
-      userData.Agency_Name,
-      userData.token,
-      1,
-      userData.Last_Login || new Date().toISOString()
-    ];
-
-    await this.executeQuery(query, params);
-    return userData;
+    try {
+      // Store user data in AsyncStorage
+      await AsyncStorage.setItem(`${this.storagePrefix}user`, JSON.stringify(userData));
+      return userData;
+    } catch (error) {
+      console.error('Error saving user:', error);
+      throw error;
+    }
   }
 
   async getUser() {
-    const query = 'SELECT * FROM users WHERE is_active = 1 LIMIT 1';
-    const result = await this.executeQuery(query);
-    
-    if (result.rows.length > 0) {
-      return result.rows.item(0);
+    try {
+      const userJson = await AsyncStorage.getItem(`${this.storagePrefix}user`);
+      return userJson ? JSON.parse(userJson) : null;
+    } catch (error) {
+      console.error('Error getting user:', error);
+      return null;
     }
-    return null;
   }
 
   async updateUserToken(userId, token) {
-    const query = 'UPDATE users SET token = ? WHERE user_id = ?';
-    await this.executeQuery(query, [token, userId]);
+    try {
+      const userJson = await AsyncStorage.getItem(`${this.storagePrefix}user`);
+      if (userJson) {
+        const user = JSON.parse(userJson);
+        user.token = token;
+        await AsyncStorage.setItem(`${this.storagePrefix}user`, JSON.stringify(user));
+      }
+    } catch (error) {
+      console.error('Error updating user token:', error);
+    }
   }
 
   async logoutUser() {
-    const query = 'UPDATE users SET token = NULL, is_active = 0';
-    await this.executeQuery(query);
+    try {
+      await AsyncStorage.removeItem(`${this.storagePrefix}user`);
+    } catch (error) {
+      console.error('Error logging out user:', error);
+    }
   }
 
   // Authority operations
   async saveAuthority(authorityData) {
-    const query = `
-      INSERT INTO authorities (
-        authority_id, user_id, authority_type, subdivision_id,
-        begin_mp, end_mp, track_type, track_number, start_time,
-        expiration_time, employee_name_display, employee_contact_display,
-        is_active, sync_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-
-    const params = [
-      authorityData.Authority_ID || null,
-      authorityData.User_ID,
-      authorityData.Authority_Type,
-      authorityData.Subdivision_ID,
-      authorityData.Begin_MP,
-      authorityData.End_MP,
-      authorityData.Track_Type,
-      authorityData.Track_Number,
-      authorityData.Start_Time || new Date().toISOString(),
-      authorityData.Expiration_Time || null,
-      authorityData.Employee_Name_Display,
-      authorityData.Employee_Contact_Display,
-      1,
-      'pending'
-    ];
-
-    const result = await this.executeQuery(query, params);
-    return result.insertId;
+    try {
+      // Store authority in AsyncStorage
+      await AsyncStorage.setItem(`${this.storagePrefix}activeAuthority`, JSON.stringify(authorityData));
+      return authorityData.Authority_ID || Date.now();
+    } catch (error) {
+      console.error('Error saving authority:', error);
+      throw error;
+    }
   }
 
   async getActiveAuthority() {
-    const query = `
-      SELECT a.*, s.subdivision_code, s.subdivision_name
-      FROM authorities a
-      LEFT JOIN subdivisions s ON a.subdivision_id = s.subdivision_id
-      WHERE a.is_active = 1
-      LIMIT 1
-    `;
-
-    const result = await this.executeQuery(query);
-    
-    if (result.rows.length > 0) {
-      return result.rows.item(0);
+    try {
+      const authorityJson = await AsyncStorage.getItem(`${this.storagePrefix}activeAuthority`);
+      return authorityJson ? JSON.parse(authorityJson) : null;
+    } catch (error) {
+      console.error('Error getting active authority:', error);
+      return null;
     }
-    return null;
   }
 
   async endAuthority(authorityId, confirmEndTracking = true) {
-    const query = `
-      UPDATE authorities 
-      SET is_active = 0, 
-          end_tracking_time = ?,
-          end_tracking_confirmed = ?,
-          sync_status = 'pending'
-      WHERE authority_id = ? OR id = ?
-    `;
-
-    const params = [
-      new Date().toISOString(),
-      confirmEndTracking ? 1 : 0,
-      authorityId,
-      authorityId
-    ];
-
-    await this.executeQuery(query, params);
+    try {
+      // Remove active authority from storage
+      await AsyncStorage.removeItem(`${this.storagePrefix}activeAuthority`);
+    } catch (error) {
+      console.error('Error ending authority:', error);
+    }
   }
 
   // Pin operations

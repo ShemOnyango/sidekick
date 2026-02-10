@@ -4,7 +4,11 @@ const agencyController = require('../controllers/agencyController');
 const { auth, authorize, agencyAccess } = require('../middleware/auth');
 const { validate, schemas } = require('../middleware/validation');
 
-// All agency routes require authentication
+// Public routes (no authentication required)
+router.get('/:agencyId/subdivisions', (req, res) => agencyController.getAgencySubdivisions(req, res));
+router.get('/:agencyId/subdivisions/:subdivisionId/tracks', (req, res) => agencyController.getSubdivisionTracks(req, res));
+
+// All other agency routes require authentication
 router.use(auth);
 
 // Get all agencies (admin only)

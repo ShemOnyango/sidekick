@@ -61,9 +61,6 @@ const App = () => {
         databaseService.init().catch(err => console.log('DB init skipped:', err));
         syncService.init().catch(err => console.log('Sync init skipped:', err));
         
-        // Check for updates
-        await checkForUpdates();
-        
         // App is ready
         setAppIsReady(true);
       } catch (error) {
@@ -85,11 +82,6 @@ const App = () => {
       syncService.cleanup();
     };
   }, []);
-
-  const checkForUpdates = async () => {
-    // This would check for app updates
-    // For now, just a placeholder
-  };
 
   if (!appIsReady) {
     return null;

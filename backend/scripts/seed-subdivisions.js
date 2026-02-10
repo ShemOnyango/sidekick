@@ -1,70 +1,86 @@
 /**
- * Seed Subdivisions for Testing
+ * Seed Subdivisions for Metro Link
  */
 require('dotenv').config();
 const { connectToDatabase, closeConnection, getConnection, sql } = require('../src/config/database');
 
 async function seedSubdivisions() {
   try {
-    console.log('🌱 Seeding subdivisions...\n');
+    console.log('🌱 Seeding Metro Link subdivisions...\n');
     
     await connectToDatabase();
     const pool = getConnection();
     
-    // Get all agencies
-    const agenciesResult = await pool.request().query('SELECT Agency_ID, Agency_CD, Agency_Name FROM Agencies WHERE Is_Active = 1');
-    const agencies = agenciesResult.recordset;
+    // Get METRLK agency (or create if doesn't exist)
+    let agency = await pool.request()
+      .query("SELECT Agency_ID, Agency_CD FROM Agencies WHERE Agency_CD = 'METRLK'");
     
-    console.log(`Found ${agencies.length} agencies\n`);
+    if (agency.recordset.length === 0) {
+      console.log('Creating METRLK agency...');
+      await pool.request()
+        .query(`
+          INSERT INTO Agencies (Agency_CD, Agency_Name, Contact_Email, Contact_Phone, Is_Active)
+          VALUES ('METRLK', 'Metro Link Rail Authority', 'info@metrolinktrains.com', '800-371-5465', 1)
+        `);
+      
+      agency = await pool.request()
+        .query("SELECT Agency_ID, Agency_CD FROM Agencies WHERE Agency_CD = 'METRLK'");
+      console.log('✓ METRLK agency created\n');
+    }
     
-    for (const agency of agencies) {
-      console.log(`Processing agency: ${agency.Agency_CD} - ${agency.Agency_Name}`);
+    const agencyId = agency.recordset[0].Agency_ID;
+    console.log(`Using agency: METRLK (ID: ${agencyId})\n`);
+    
+    // Metro Link subdivisions from Excel data
+    const subdivisions = [
+      {
+        code: 'VENTURA',
+        name: 'Ventura County Line',
+        region: 'Southern California'
+      },
+      {
+        code: 'MONTALVO',
+        name: 'Montalvo Line', 
+        region: 'Southern California'
+      }
+    ];
+    
+    for (const sub of subdivisions) {
+      // Check if subdivision already exists
+      const existing = await pool.request()
+        .input('agencyId', sql.Int, agencyId)
+        .input('code', sql.NVarChar, sub.code)
+        .query('SELECT Subdivision_ID FROM Subdivisions WHERE Agency_ID = @agencyId AND Subdivision_Code = @code');
       
-      // Check if agency already has subdivisions
-      const subdivisionCheck = await pool.request()
-        .input('agencyId', sql.Int, agency.Agency_ID)
-        .query('SELECT COUNT(*) as count FROM Subdivisions WHERE Agency_ID = @agencyId');
-      
-      if (subdivisionCheck.recordset[0].count > 0) {
-        console.log(`  ✓ Already has ${subdivisionCheck.recordset[0].count} subdivision(s)\n`);
+      if (existing.recordset.length > 0) {
+        console.log(`  ✓ ${sub.code} already exists (ID: ${existing.recordset[0].Subdivision_ID})`);
         continue;
       }
       
-      // Create default subdivisions for this agency
-      const subdivisions = [
-        {
-          code: `${agency.Agency_CD}-MAIN`,
-          name: `${agency.Agency_Name} Main Line`,
-          region: 'Main'
-        },
-        {
-          code: `${agency.Agency_CD}-YARD`,
-          name: `${agency.Agency_Name} Yard`,
-          region: 'Yard'
-        }
-      ];
+      const result = await pool.request()
+        .input('agencyId', sql.Int, agencyId)
+        .input('code', sql.NVarChar, sub.code)
+        .input('name', sql.NVarChar, sub.name)
+        .input('region', sql.NVarChar, sub.region || '')
+        .query(`
+          INSERT INTO Subdivisions (Agency_ID, Subdivision_Code, Subdivision_Name, Region, Is_Active, Created_Date, Updated_Date)
+          OUTPUT INSERTED.*
+          VALUES (@agencyId, @code, @name, @region, 1, GETDATE(), GETDATE())
+        `);
       
-      for (const sub of subdivisions) {
-        const result = await pool.request()
-          .input('agencyId', sql.Int, agency.Agency_ID)
-          .input('code', sql.NVarChar, sub.code.substring(0, 20)) // Limit to 20 chars
-          .input('name', sql.NVarChar, sub.name.substring(0, 100))
-          .input('region', sql.NVarChar, sub.region)
-          .query(`
-            INSERT INTO Subdivisions (Agency_ID, Subdivision_Code, Subdivision_Name, Region)
-            OUTPUT INSERTED.*
-            VALUES (@agencyId, @code, @name, @region)
-          `);
-        
-        const created = result.recordset[0];
-        console.log(`  ✓ Created: ${created.Subdivision_Code} (ID: ${created.Subdivision_ID})`);
-      }
-      console.log('');
+      const created = result.recordset[0];
+      console.log(`  ✓ Created: ${created.Subdivision_Code} - ${created.Subdivision_Name} (ID: ${created.Subdivision_ID})`);
     }
     
-    // Show final count
-    const totalResult = await pool.request().query('SELECT COUNT(*) as total FROM Subdivisions');
-    console.log(`\n✅ Total subdivisions in database: ${totalResult.recordset[0].total}`);
+    // Show all subdivisions for METRLK
+    const allSubs = await pool.request()
+      .input('agencyId', sql.Int, agencyId)
+      .query('SELECT Subdivision_ID, Subdivision_Code, Subdivision_Name FROM Subdivisions WHERE Agency_ID = @agencyId');
+    
+    console.log(`\n✅ Total METRLK subdivisions: ${allSubs.recordset.length}`);
+    allSubs.recordset.forEach(s => {
+      console.log(`   - ${s.Subdivision_Code}: ${s.Subdivision_Name} (ID: ${s.Subdivision_ID})`);
+    });
     
     await closeConnection();
     console.log('\n🎉 Subdivision seeding completed successfully!');

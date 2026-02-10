@@ -1,4 +1,4 @@
--- Production Seed Data for Herzog Rail Authority System
+-- Production Seed Data for Sidekick System
 -- This file contains only essential configurations
 -- Actual data is imported via import scripts
 USE [HerzogRailAuthority]

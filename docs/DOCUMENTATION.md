@@ -1,5 +1,5 @@
 # 📋 **COMPREHENSIVE PROJECT DOCUMENTATION**
-## **Herzog Rail Authority Awareness System**
+## **Sidekick Awareness System**
 
 ---
 

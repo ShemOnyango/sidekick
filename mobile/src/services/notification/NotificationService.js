@@ -53,7 +53,7 @@ class NotificationService {
         const granted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
           {
-            title: 'Herzog Rail Authority Notifications',
+            title: 'Sidekick Notifications',
             message: 'This app needs notification permissions to send safety alerts',
             buttonNeutral: 'Ask Me Later',
             buttonNegative: 'Cancel',

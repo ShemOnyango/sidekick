@@ -179,7 +179,7 @@
   "data": {
     "branding": {
       "Agency_ID": 1,
-      "App_Name": "Herzog Rail Authority",
+      "App_Name": "Sidekick",
       "Primary_Color": "#000000",
       "Secondary_Color": "#FFFFFF",
       "Accent_Color": "#FFD100",
@@ -206,7 +206,7 @@
 **Request Body:**
 ```json
 {
-  "appName": "Herzog Rail Authority",
+  "appName": "Sidekick",
   "primaryColor": "#000000",
   "secondaryColor": "#FFFFFF",
   "accentColor": "#FFD100",
@@ -362,7 +362,7 @@
       {
         "Agency_ID": 1,
         "Agency_Name": "Herzog Railroad Services",
-        "App_Name": "Herzog Rail Authority",
+        "App_Name": "Sidekick",
         "Primary_Color": "#000000",
         ...
       }
@@ -459,7 +459,7 @@ await fetch('/api/branding/agency/1', {
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    appName: 'Herzog Rail Authority',
+    appName: 'Sidekick',
     primaryColor: '#000000',
     secondaryColor: '#FFFFFF',
     accentColor: '#FFD100'

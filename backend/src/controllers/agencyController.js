@@ -305,7 +305,7 @@ class AgencyController {
         .input('agencyId', sql.Int, agencyId)
         .query(`
           INSERT INTO Branding_Configurations (Agency_ID, App_Name, Primary_Color, Secondary_Color, Accent_Color)
-          VALUES (@agencyId, 'Herzog Rail Authority', '#000000', '#FFFFFF', '#FFD100')
+          VALUES (@agencyId, 'Sidekick', '#000000', '#FFFFFF', '#FFD100')
         `);
       
       logger.info(`Default configurations created for agency ${agencyId}`);
@@ -313,6 +313,86 @@ class AgencyController {
     } catch (error) {
       logger.error('Create default configurations error:', error);
       throw error;
+    }
+  }
+
+  async getAgencySubdivisions(req, res) {
+    try {
+      const { agencyId } = req.params;
+      
+      const pool = await getConnection();
+      const result = await pool.request()
+        .input('agencyId', sql.Int, agencyId)
+        .query(`
+          SELECT 
+            Subdivision_ID,
+            Subdivision_Code,
+            Subdivision_Name,
+            Is_Active
+          FROM Subdivisions
+          WHERE Agency_ID = @agencyId AND Is_Active = 1
+          ORDER BY Subdivision_Code
+        `);
+      
+      res.json({
+        success: true,
+        data: result.recordset
+      });
+    } catch (error) {
+      logger.error('Get agency subdivisions error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get subdivisions'
+      });
+    }
+  }
+
+  async getSubdivisionTracks(req, res) {
+    try {
+      const { agencyId, subdivisionId } = req.params;
+      
+      const pool = await getConnection();
+      
+      // Verify subdivision belongs to agency
+      const subdivisionCheck = await pool.request()
+        .input('agencyId', sql.Int, agencyId)
+        .input('subdivisionId', sql.Int, subdivisionId)
+        .query(`
+          SELECT Subdivision_ID
+          FROM Subdivisions
+          WHERE Agency_ID = @agencyId AND Subdivision_ID = @subdivisionId
+        `);
+      
+      if (subdivisionCheck.recordset.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Subdivision not found for this agency'
+        });
+      }
+      
+      // Get distinct track numbers for this subdivision
+      const result = await pool.request()
+        .input('subdivisionId', sql.Int, subdivisionId)
+        .query(`
+          SELECT DISTINCT
+            Track_Type,
+            Track_Number
+          FROM Tracks
+          WHERE Subdivision_ID = @subdivisionId
+          AND Asset_Status = 'ACTIVE'
+          ORDER BY Track_Type, Track_Number
+        `);
+      
+      res.json({
+        success: true,
+        data: result.recordset
+      });
+    } catch (error) {
+      logger.error('Get subdivision tracks error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get tracks'
+      });
     }
   }
 }

@@ -1,112 +1,446 @@
-import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, ActivityIndicator } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { COLORS, SPACING, FONT_SIZES, FONT_WEIGHTS, BORDER_RADIUS } from '../../constants/theme';
+import gpsTrackingService from '../../services/gps/GPSTrackingService';
+import apiService from '../../services/api/ApiService';
+import { setLayerVisibility } from '../../store/slices/mapSlice';
+import { getMapStyleById } from '../../constants/mapStyles';
+
+// Dark map style
+const customMapStyle = [
+  {
+    "elementType": "geometry",
+    "stylers": [{ "color": "#242f3e" }]
+  },
+  {
+    "elementType": "labels.text.fill",
+    "stylers": [{ "color": "#746855" }]
+  },
+  {
+    "elementType": "labels.text.stroke",
+    "stylers": [{ "color": "#242f3e" }]
+  },
+  {
+    "featureType": "road",
+    "elementType": "geometry",
+    "stylers": [{ "color": "#38414e" }]
+  },
+  {
+    "featureType": "road",
+    "elementType": "geometry.stroke",
+    "stylers": [{ "color": "#212a37" }]
+  },
+  {
+    "featureType": "water",
+    "elementType": "geometry",
+    "stylers": [{ "color": "#17263c" }]
+  }
+];
 
 const HomeScreen = ({ navigation }) => {
+  const dispatch = useDispatch();
   const { user } = useSelector((state) => state.auth);
   const { unreadAlertsCount } = useSelector((state) => state.alerts);
-  const { activeAuthority } = useSelector((state) => state.authority || {});
+  const storedLayerVisibility = useSelector((state) => state.map.layerVisibility || {});
+  const mapStyleId = useSelector((state) => state.map.mapStyleId);
+  const authority = useSelector((state) => state.authority);
+  const pin = useSelector((state) => state.pin);
+  const gps = useSelector((state) => state.gps);
+  
+  const activeAuthority = authority?.activeAuthority;
+  const authorities = authority?.authorities || [];
+  const pins = pin?.pins || [];
+  const currentPosition = gps?.currentPosition;
+  const isTracking = gps?.isTracking;
+
+  const [gpsActive, setGpsActive] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [layersVisible, setLayersVisible] = useState(false);
+  const [layersLoading, setLayersLoading] = useState(false);
+  const [layers, setLayers] = useState([]);
+  const [layerVisibility, setLocalLayerVisibility] = useState({});
+  const [layerData, setLayerData] = useState({});
+  const [mapRegion, setMapRegion] = useState({
+    latitude: currentPosition?.latitude || 39.8283,
+    longitude: currentPosition?.longitude || -98.5795,
+    latitudeDelta: 50,
+    longitudeDelta: 50,
+  });
+
+  useEffect(() => {
+    setGpsActive(isTracking);
+  }, [isTracking]);
+
+  useEffect(() => {
+    if (menuVisible) {
+      setLayersVisible(false);
+    }
+  }, [menuVisible]);
+
+  useEffect(() => {
+    if (currentPosition) {
+      setMapRegion({
+        latitude: currentPosition.latitude,
+        longitude: currentPosition.longitude,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      });
+    }
+  }, [currentPosition]);
+
+  // Memoize active authorities count
+  const activeAuthoritiesCount = useMemo(() => {
+    return authorities.filter(auth => 
+      auth.Status === 'Active' || auth.Status === 'active'
+    ).length;
+  }, [authorities]);
+
+  // Memoize nearby infrastructure count
+  const nearbyInfrastructureCount = useMemo(() => {
+    if (!currentPosition) return 0;
+    return pins.filter(pin => {
+      // Simple distance check - within ~0.01 degrees (~1km)
+      const latDiff = Math.abs(pin.Latitude - currentPosition.latitude);
+      const lonDiff = Math.abs(pin.Longitude - currentPosition.longitude);
+      return latDiff < 0.01 && lonDiff < 0.01;
+    }).length;
+  }, [pins, currentPosition]);
 
   const quickActions = [
     {
       id: 'map',
       title: 'Track Map',
       icon: 'map-marker',
-      color: COLORS.accent,
+      color: '#FFD100',
       onPress: () => navigation.navigate('Map'),
     },
     {
       id: 'authority',
-      title: activeAuthority ? 'Active Authority' : 'Enter Authority',
+      title: 'Enter Authority',
       icon: 'clipboard-check',
-      color: activeAuthority ? COLORS.authorityActive : COLORS.accent,
+      color: '#FFD100',
       onPress: () => navigation.navigate('Authority'),
     },
     {
       id: 'pins',
       title: 'Pin Drops',
       icon: 'map-marker-multiple',
-      color: COLORS.accent,
+      color: '#FFD100',
       onPress: () => navigation.navigate('Pins'),
     },
     {
       id: 'alerts',
       title: 'Alerts',
       icon: 'bell',
-      color: COLORS.error,
+      color: '#FF3B30',
       badge: unreadAlertsCount,
       onPress: () => navigation.navigate('Alerts'),
     },
   ];
 
+  const handleGPSToggle = async (value) => {
+    if (value) {
+      try {
+        await gpsTrackingService.init();
+        if (activeAuthority) {
+          await gpsTrackingService.startTracking(activeAuthority);
+        }
+        setGpsActive(true);
+      } catch (error) {
+        console.error('Failed to enable GPS tracking:', error);
+      }
+    } else {
+      await gpsTrackingService.stopTracking();
+      setGpsActive(false);
+    }
+  };
+
+  const loadLayers = async () => {
+    if (layersLoading) return;
+    setLayersLoading(true);
+    try {
+      const data = await apiService.getMapLayers({
+        subdivisionId: activeAuthority?.Subdivision_ID || undefined,
+      });
+      const list = data?.layers || [];
+      setLayers(list);
+      const hasStored = Object.keys(storedLayerVisibility).length > 0;
+      const visibility = {};
+      list.forEach((layer) => {
+        const defaultValue = hasStored ? Boolean(storedLayerVisibility[layer.id]) : layer.count > 0;
+        visibility[layer.id] = defaultValue;
+        if (!hasStored) {
+          dispatch(setLayerVisibility({ layerId: layer.id, value: defaultValue }));
+        }
+      });
+      setLocalLayerVisibility(visibility);
+
+      const visibleLayerIds = list
+        .filter((layer) => visibility[layer.id])
+        .map((layer) => layer.id);
+
+      await Promise.all(
+        visibleLayerIds
+          .filter((layerId) => !layerData[layerId])
+          .map((layerId) => loadLayerData(layerId))
+      );
+    } catch (error) {
+      console.error('Failed to load map layers:', error);
+    } finally {
+      setLayersLoading(false);
+    }
+  };
+
+  const loadLayerData = async (layerId) => {
+    try {
+      const data = await apiService.getMapLayerData(layerId, {
+        subdivisionId: activeAuthority?.Subdivision_ID || undefined,
+        limit: 1000,
+      });
+      setLayerData((prev) => ({
+        ...prev,
+        [layerId]: data?.features || [],
+      }));
+    } catch (error) {
+      console.error(`Failed to load layer data for ${layerId}:`, error);
+    }
+  };
+
+  const toggleLayer = async (layerId) => {
+    const nextValue = !layerVisibility[layerId];
+    setLocalLayerVisibility((prev) => ({
+      ...prev,
+      [layerId]: nextValue,
+    }));
+    dispatch(setLayerVisibility({ layerId, value: nextValue }));
+
+    if (!layerData[layerId]) {
+      await loadLayerData(layerId);
+    }
+  };
+
+  const getLayerStyle = (layer) => {
+    if (layer.id === 'mileposts') {
+      return { color: '#FFD100', icon: 'numeric-9-plus-box' };
+    }
+    if (layer.id === 'tracks') {
+      return { color: '#00C2FF', icon: 'train-variant' };
+    }
+    if (layer.id === 'signals') return { color: '#4CD964', icon: 'signal-variant' };
+    if (layer.id === 'road-crossings') return { color: '#FF9500', icon: 'road-variant' };
+    if (layer.id === 'rail-crossings') return { color: '#FF9500', icon: 'transit-connection-variant' };
+    if (layer.id === 'bridges') return { color: '#5AC8FA', icon: 'bridge' };
+    if (layer.id === 'tunnels') return { color: '#AF52DE', icon: 'tunnel' };
+    if (layer.id === 'stations') return { color: '#34C759', icon: 'train' };
+    if (layer.id === 'turnouts') return { color: '#FFD60A', icon: 'swap-horizontal' };
+    if (layer.id === 'detectors') return { color: '#FF453A', icon: 'radar' };
+    if (layer.id === 'derails') return { color: '#FF453A', icon: 'alert' };
+    if (layer.id === 'snowsheds') return { color: '#64D2FF', icon: 'weather-snowy' };
+    if (layer.id === 'arches') return { color: '#FFD60A', icon: 'arch' };
+    if (layer.id === 'culverts') return { color: '#30B0C7', icon: 'pipe' };
+    if (layer.id === 'depots') return { color: '#34C759', icon: 'warehouse' };
+    if (layer.id === 'control-points') return { color: '#FF9F0A', icon: 'crosshairs-gps' };
+    return { color: '#FF7A00', icon: 'map-marker-radius' };
+  };
+
+  const activeMarkers = useMemo(() => {
+    const markers = [];
+    layers.forEach((layer) => {
+      if (!layerVisibility[layer.id]) return;
+      const features = layerData[layer.id] || [];
+      const style = getLayerStyle(layer);
+      features.forEach((feature, index) => {
+        if (feature.Latitude == null || feature.Longitude == null) return;
+        markers.push({
+          key: `${layer.id}-${feature.Track_ID || feature.Milepost_ID || index}`,
+          latitude: Number(feature.Latitude),
+          longitude: Number(feature.Longitude),
+          title: feature.Asset_Name || layer.label,
+          description: feature.MP ? `MP ${feature.MP}` : feature.Asset_Type || layer.label,
+          color: style.color,
+          icon: style.icon,
+        });
+      });
+    });
+    return markers;
+  }, [layers, layerData, layerVisibility]);
+
+  const selectedStyle = getMapStyleById(mapStyleId);
+
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Herzog Rail Authority</Text>
-        <Text style={styles.subtitle}>Welcome, {user?.Employee_Name || 'User'}</Text>
-      </View>
-
-      {activeAuthority && (
-        <View style={styles.activeAuthorityBanner}>
-          <MaterialCommunityIcons name="shield-check" size={24} color={COLORS.authorityActive} />
-          <View style={styles.authorityInfo}>
-            <Text style={styles.authorityText}>AUTHORITY ACTIVE</Text>
-            <Text style={styles.authorityDetails}>
-              {activeAuthority.Subdivision} • MP {activeAuthority.Begin_Milepost}-{activeAuthority.End_Milepost}
-            </Text>
-          </View>
-          <TouchableOpacity 
-            style={styles.viewButton}
-            onPress={() => navigation.navigate('Authority')}
+      {/* Background Map */}
+      <MapView
+        style={styles.backgroundMap}
+        provider={PROVIDER_GOOGLE}
+        mapType={selectedStyle.mapType}
+        customMapStyle={selectedStyle.customStyle || customMapStyle}
+        region={mapRegion}
+        showsUserLocation={true}
+        showsMyLocationButton={false}
+        showsCompass={false}
+        scrollEnabled={!menuVisible}
+        zoomEnabled={!menuVisible}
+        rotateEnabled={false}
+        pitchEnabled={false}
+      >
+        {activeMarkers.map((marker) => (
+          <Marker
+            key={marker.key}
+            coordinate={{ latitude: marker.latitude, longitude: marker.longitude }}
+            title={marker.title}
+            description={marker.description}
+            pinColor={marker.color}
+            tracksViewChanges={false}
           >
-            <Text style={styles.viewButtonText}>VIEW</Text>
-          </TouchableOpacity>
+            <View style={[styles.layerMarker, { borderColor: marker.color }]}>
+              <MaterialCommunityIcons name={marker.icon} size={16} color={marker.color} />
+            </View>
+          </Marker>
+        ))}
+      </MapView>
+
+      {/* Menu Toggle Button */}
+      <TouchableOpacity 
+        style={styles.menuButton}
+        onPress={() => setMenuVisible(!menuVisible)}
+        activeOpacity={0.7}
+      >
+        <MaterialCommunityIcons 
+          name={menuVisible ? 'close' : 'menu'} 
+          size={28} 
+          color="#FFFFFF" 
+        />
+      </TouchableOpacity>
+
+      {/* Layers Toggle Button */}
+      <TouchableOpacity
+        style={styles.layersButton}
+        onPress={() => {
+          const nextVisible = !layersVisible;
+          setLayersVisible(nextVisible);
+          if (nextVisible && layers.length === 0) {
+            loadLayers();
+          }
+        }}
+        activeOpacity={0.7}
+      >
+        <MaterialCommunityIcons
+          name={layersVisible ? 'close' : 'layers'}
+          size={24}
+          color="#FFFFFF"
+        />
+      </TouchableOpacity>
+
+      {layersVisible && (
+        <View style={styles.layersPanel}>
+          <View style={styles.layersHeader}>
+            <Text style={styles.layersTitle}>Layers</Text>
+            {layersLoading && <ActivityIndicator size="small" color="#FFD100" />}
+          </View>
+          <Text style={styles.layersHint}>
+            Toggle layers ON to search or navigate to those features.
+          </Text>
+          <ScrollView style={styles.layersList} showsVerticalScrollIndicator={false}>
+            {layers.map((layer) => (
+              <View key={layer.id} style={styles.layerRow}>
+                <View style={styles.layerInfo}>
+                  <MaterialCommunityIcons
+                    name={getLayerStyle(layer).icon}
+                    size={18}
+                    color={getLayerStyle(layer).color}
+                  />
+                  <Text style={styles.layerLabel}>{layer.label}</Text>
+                  <Text style={styles.layerCount}>{layer.count}</Text>
+                </View>
+                <Switch
+                  value={Boolean(layerVisibility[layer.id])}
+                  onValueChange={() => toggleLayer(layer.id)}
+                  trackColor={{ false: '#333333', true: '#FFD100' }}
+                  thumbColor="#FFFFFF"
+                />
+              </View>
+            ))}
+            {layers.length === 0 && !layersLoading && (
+              <Text style={styles.layerEmpty}>No layers available.</Text>
+            )}
+          </ScrollView>
+          <Text style={styles.layersDisclaimer}>
+            Turn OFF layers you don't need to improve performance.
+          </Text>
         </View>
       )}
 
-      <ScrollView style={styles.content}>
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.actionsGrid}>
-            {quickActions.map((action) => (
-              <TouchableOpacity
-                key={action.id}
-                style={[styles.actionCard, { borderLeftColor: action.color }]}
-                onPress={action.onPress}
-              >
-                <View style={styles.actionIconContainer}>
-                  <MaterialCommunityIcons name={action.icon} size={32} color={action.color} />
-                  {action.badge > 0 && (
-                    <View style={styles.badge}>
-                      <Text style={styles.badgeText}>{action.badge}</Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={styles.actionTitle}>{action.title}</Text>
-              </TouchableOpacity>
-            ))}
+      {menuVisible && (
+        <View style={styles.menuOverlay}>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Dashboard</Text>
           </View>
-        </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Today's Summary</Text>
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryItem}>
-              <MaterialCommunityIcons name="calendar-check" size={24} color="#4CAF50" />
-              <Text style={styles.summaryLabel}>Active Authorities</Text>
-              <Text style={styles.summaryValue}>-</Text>
+          <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            {/* Welcome Section */}
+            <View style={styles.welcomeSection}>
+              <Text style={styles.title}>Sidekick</Text>
+              <Text style={styles.subtitle}>Welcome, {user?.Employee_Name || 'System Administrator'}</Text>
             </View>
-            <View style={styles.summaryDivider} />
-            <View style={styles.summaryItem}>
-              <MaterialCommunityIcons name="map-marker" size={24} color="#2196F3" />
-              <Text style={styles.summaryLabel}>Nearby Infrastructure</Text>
-              <Text style={styles.summaryValue}>-</Text>
+
+            {/* Quick Actions */}
+            <View style={styles.section}>
+              <Text style={styles.sectionHeader}>Quick Actions</Text>
+              <View style={styles.quickActionsGrid}>
+                {quickActions.map((action) => (
+                  <TouchableOpacity
+                    key={action.id}
+                    style={styles.actionButton}
+                    onPress={action.onPress}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.actionIconWrapper, { backgroundColor: action.color + '15' }]}>
+                      <MaterialCommunityIcons name={action.icon} size={40} color={action.color} />
+                      {action.badge > 0 && (
+                        <View style={styles.actionBadge}>
+                          <Text style={styles.actionBadgeText}>{action.badge}</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.actionText}>{action.title}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
-          </View>
+
+            {/* Today's Summary */}
+            <View style={styles.section}>
+              <Text style={styles.sectionHeader}>Today's Summary</Text>
+              <View style={styles.summaryCard}>
+                <View style={styles.summaryRow}>
+                  <View style={styles.summaryItem}>
+                    <View style={styles.summaryIconWrapper}>
+                      <MaterialCommunityIcons name="calendar-check" size={32} color="#34C759" />
+                    </View>
+                    <Text style={styles.summaryValue}>{activeAuthoritiesCount}</Text>
+                    <Text style={styles.summaryLabel}>Active{'\n'}Authorities</Text>
+                  </View>
+                  
+                  <View style={styles.summaryDivider} />
+                  
+                  <View style={styles.summaryItem}>
+                    <View style={styles.summaryIconWrapper}>
+                      <MaterialCommunityIcons name="map-marker-radius" size={32} color="#007AFF" />
+                    </View>
+                    <Text style={styles.summaryValue}>{nearbyInfrastructureCount}</Text>
+                    <Text style={styles.summaryLabel}>Nearby{'\n'}Infrastructure</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          </ScrollView>
         </View>
-      </ScrollView>
+      )}
     </View>
   );
 };
@@ -114,146 +448,253 @@ const HomeScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: '#000000',
+  },
+  backgroundMap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  menuButton: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    zIndex: 1000,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  layersButton: {
+    position: 'absolute',
+    top: 20,
+    left: 76,
+    zIndex: 1000,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  layersPanel: {
+    position: 'absolute',
+    top: 72,
+    left: 20,
+    width: 260,
+    maxHeight: 360,
+    backgroundColor: 'rgba(18, 18, 18, 0.96)',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#333333',
+    zIndex: 999,
+  },
+  layersHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  layersTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  layersHint: {
+    fontSize: 11,
+    color: '#CCCCCC',
+    marginBottom: 8,
+  },
+  layersList: {
+    maxHeight: 240,
+  },
+  layerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#222222',
+  },
+  layerInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    marginRight: 8,
+  },
+  layerLabel: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    flex: 1,
+  },
+  layerCount: {
+    color: '#FFD100',
+    fontSize: 12,
+    marginLeft: 6,
+  },
+  layerEmpty: {
+    color: '#999999',
+    fontSize: 12,
+    textAlign: 'center',
+    paddingVertical: 16,
+  },
+  layersDisclaimer: {
+    marginTop: 8,
+    fontSize: 10,
+    color: '#A0A0A0',
+  },
+  layerMarker: {
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    borderRadius: 12,
+    padding: 4,
+    borderWidth: 1,
+  },
+  menuOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
   },
   header: {
-    backgroundColor: COLORS.primary,
-    padding: SPACING.lg,
-    paddingTop: 40,
-    borderBottomWidth: 2,
-    borderBottomColor: COLORS.accent,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 16,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  scrollContent: {
+    flex: 1,
+  },
+  welcomeSection: {
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 8,
   },
   title: {
-    fontSize: FONT_SIZES.xxl,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.text,
-    marginBottom: SPACING.xs,
+    fontSize: 34,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 4,
   },
   subtitle: {
-    fontSize: FONT_SIZES.md,
-    color: COLORS.textSecondary,
-  },
-  activeAuthorityBanner: {
-    backgroundColor: COLORS.surface,
-    padding: SPACING.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.authorityActive,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  authorityInfo: {
-    flex: 1,
-    marginLeft: SPACING.md,
-  },
-  authorityText: {
-    fontSize: FONT_SIZES.sm,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.authorityActive,
-  },
-  authorityDetails: {
-    fontSize: FONT_SIZES.xs,
-    color: COLORS.textSecondary,
-    marginTop: SPACING.xs,
-  },
-  viewButton: {
-    backgroundColor: COLORS.accent,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-    borderRadius: BORDER_RADIUS.sm,
-  },
-  viewButtonText: {
-    fontSize: FONT_SIZES.sm,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.primary,
-  },
-  content: {
-    flex: 1,
+    fontSize: 16,
+    color: '#999999',
   },
   section: {
-    padding: SPACING.md,
+    paddingHorizontal: 20,
+    paddingTop: 24,
   },
-  sectionTitle: {
-    fontSize: FONT_SIZES.lg,
-    fontWeight: FONT_WEIGHTS.semibold,
-    marginBottom: SPACING.md,
-    color: COLORS.text,
+  sectionHeader: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginBottom: 16,
   },
-  actionsGrid: {
+  quickActionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginHorizontal: -SPACING.sm,
+    marginHorizontal: -6,
   },
-  actionCard: {
+  actionButton: {
     width: '50%',
-    padding: SPACING.sm,
-    backgroundColor: COLORS.surface,
-    borderRadius: BORDER_RADIUS.md,
-    margin: SPACING.sm,
+    paddingHorizontal: 6,
+    marginBottom: 12,
+  },
+  actionIconWrapper: {
+    backgroundColor: '#2C2C2E',
+    borderRadius: 12,
+    padding: 20,
     alignItems: 'center',
-    borderLeftWidth: 4,
-  },
-  actionIconContainer: {
+    justifyContent: 'center',
+    height: 120,
     position: 'relative',
-    marginBottom: SPACING.sm,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FFD100',
   },
-  badge: {
+  actionBadge: {
     position: 'absolute',
-    top: -5,
-    right: -5,
-    backgroundColor: COLORS.error,
-    borderRadius: BORDER_RADIUS.round,
+    top: 8,
+    right: 8,
+    backgroundColor: '#FF3B30',
+    borderRadius: 10,
     minWidth: 20,
     height: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: SPACING.xs,
+    paddingHorizontal: 6,
   },
-  badgeText: {
-    color: COLORS.text,
-    fontSize: FONT_SIZES.xs,
-    fontWeight: FONT_WEIGHTS.bold,
+  actionBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
-  actionTitle: {
-    fontSize: FONT_SIZES.sm,
-    fontWeight: FONT_WEIGHTS.medium,
-    color: COLORS.text,
+  actionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
     textAlign: 'center',
+    marginTop: 8,
   },
   summaryCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: BORDER_RADIUS.md,
-    padding: SPACING.md,
+    backgroundColor: '#1C1C1E',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 24,
+  },
+  summaryRow: {
     flexDirection: 'row',
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    alignItems: 'center',
   },
   summaryItem: {
     flex: 1,
     alignItems: 'center',
   },
-  summaryDivider: {
-    width: 1,
-    backgroundColor: COLORS.border,
-    marginHorizontal: SPACING.md,
-  },
-  summaryDivider: {
-    width: 1,
-    backgroundColor: COLORS.border,
-    marginHorizontal: SPACING.md,
-  },
-  summaryLabel: {
-    fontSize: FONT_SIZES.xs,
-    color: COLORS.textSecondary,
-    marginTop: SPACING.sm,
-    textAlign: 'center',
+  summaryIconWrapper: {
+    marginBottom: 12,
   },
   summaryValue: {
-    fontSize: FONT_SIZES.xl,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.text,
-    marginTop: SPACING.xs,
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  summaryLabel: {
+    fontSize: 13,
+    color: '#999999',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  summaryDivider: {
+    width: 1,
+    height: 80,
+    backgroundColor: '#2C2C2E',
+    marginHorizontal: 16,
   },
 });
 

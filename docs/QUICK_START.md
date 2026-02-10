@@ -1,4 +1,4 @@
-# Quick Start Guide - Herzog Rail Authority System
+# Quick Start Guide - Sidekick System
 
 ## Prerequisites
 - Node.js 18+

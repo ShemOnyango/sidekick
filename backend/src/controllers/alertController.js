@@ -166,12 +166,23 @@ class AlertController {
         .input('userId', sql.Int, user.User_ID)
         .query(query);
       
+      // Get unread count
+      let unreadCount = 0;
+      if (unreadOnly === 'true') {
+        unreadCount = result.recordset.length;
+      } else {
+        const unreadResult = await pool.request()
+          .input('userId', sql.Int, user.User_ID)
+          .query('SELECT COUNT(*) as count FROM Alert_Logs WHERE User_ID = @userId AND Is_Read = 0');
+        unreadCount = unreadResult.recordset[0].count;
+      }
+      
       res.json({
         success: true,
         data: {
           alerts: result.recordset,
           count: result.recordset.length,
-          unreadCount: unreadOnly === 'true' ? result.recordset.length : await this.getUnreadCount(user.User_ID)
+          unreadCount: unreadCount
         }
       });
     } catch (error) {
@@ -229,6 +240,57 @@ class AlertController {
       res.status(500).json({
         success: false,
         error: 'Failed to mark alert as read'
+      });
+    }
+  }
+
+  async deleteAlert(req, res) {
+    try {
+      const { alertId } = req.params;
+      const user = req.user;
+      
+      const pool = getConnection();
+      
+      // Check if alert belongs to user
+      const checkQuery = `
+        SELECT 1 
+        FROM Alert_Logs 
+        WHERE Alert_Log_ID = @alertId AND User_ID = @userId
+      `;
+      
+      const checkResult = await pool.request()
+        .input('alertId', sql.BigInt, alertId)
+        .input('userId', sql.Int, user.User_ID)
+        .query(checkQuery);
+      
+      if (checkResult.recordset.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Alert not found or access denied'
+        });
+      }
+      
+      // Delete the alert
+      const deleteQuery = `
+        DELETE FROM Alert_Logs
+        WHERE Alert_Log_ID = @alertId
+      `;
+      
+      await pool.request()
+        .input('alertId', sql.BigInt, alertId)
+        .query(deleteQuery);
+      
+      logger.info(`Alert ${alertId} deleted by user ${user.User_ID}`);
+      
+      res.json({
+        success: true,
+        message: 'Alert deleted successfully'
+      });
+    } catch (error) {
+      logger.error('Delete alert error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to delete alert'
       });
     }
   }

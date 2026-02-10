@@ -1,4 +1,4 @@
-// Herzog Rail Authority Theme
+// Sidekick Theme
 // Primary: White & Black, Indicator: Yellow #FFD100
 
 export const COLORS = {

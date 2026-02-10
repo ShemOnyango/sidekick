@@ -11,6 +11,7 @@ import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
+import Constants from 'expo-constants';
 import { ALERT_DISTANCES, COLORS } from '../../constants/theme';
 import { calculateTrackDistance, getCurrentTrack } from '../../utils/trackGeometry';
 
@@ -27,20 +28,26 @@ class ProximityAlertService {
   }
 
   async initialize() {
-    // Request notification permissions
-    const { status } = await Notifications.requestPermissionsAsync();
-    if (status !== 'granted') {
-      console.warn('Notification permissions not granted');
-    }
+    if (Constants.appOwnership !== 'expo') {
+      // Request notification permissions
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') {
+        console.warn('Notification permissions not granted');
+      }
 
-    // Configure notification behavior
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-      }),
-    });
+      // Configure notification behavior
+      Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowAlert: true,
+          shouldPlaySound: true,
+          shouldSetBadge: false,
+        }),
+      });
+    } else {
+      console.warn(
+        'Notifications disabled in Expo Go. Use a development build for push/local notifications.'
+      );
+    }
 
     // Load alert sounds
     await this.loadAlertSounds();
@@ -272,17 +279,19 @@ class ProximityAlertService {
     // Trigger haptic feedback
     await this.triggerHaptics(level);
 
-    // Send notification
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title,
-        body: message,
-        sound: true,
-        priority: level === 'emergency' || level === 'critical' ? 'high' : 'default',
-        color: this.getAlertColor(level),
-      },
-      trigger: null, // Immediate
-    });
+    // Send notification (skip in Expo Go)
+    if (Constants.appOwnership !== 'expo') {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body: message,
+          sound: true,
+          priority: level === 'emergency' || level === 'critical' ? 'high' : 'default',
+          color: this.getAlertColor(level),
+        },
+        trigger: null, // Immediate
+      });
+    }
 
     // Emit event for UI updates
     if (this.onAlert) {

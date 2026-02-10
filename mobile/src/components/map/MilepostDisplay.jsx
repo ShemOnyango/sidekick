@@ -23,7 +23,7 @@ const MilepostDisplay = ({ milepost, trackType, trackNumber, subdivision, headin
 
       <View style={styles.trackInfo}>
         <View style={styles.infoRow}>
-          <Ionicons name="railroad" size={16} color={COLORS.accent} />
+          <Ionicons name="train" size={16} color={COLORS.accent} />
           <Text style={styles.trackText}>
             {trackType && trackNumber ? `${trackType} ${trackNumber}` : 'No Track'}
           </Text>

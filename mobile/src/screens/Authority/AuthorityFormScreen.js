@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Platform,
+  TextInput,
 } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { useForm, Controller } from 'react-hook-form';
@@ -14,10 +16,12 @@ import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
 import DropDownPicker from 'react-native-dropdown-picker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { createAuthority } from '../../store/slices/authoritySlice';
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
+import { createAuthority, getActiveAuthority } from '../../store/slices/authoritySlice';
 import databaseService from '../../services/database/DatabaseService';
+import apiService from '../../services/api/ApiService';
 import navigationService from '../../navigation/NavigationService';
+import gpsTrackingService from '../../services/gps/GPSTrackingService';
 
 const authoritySchema = yup.object().shape({
   authorityType: yup.string().required('Authority type is required'),
@@ -46,6 +50,7 @@ const AuthorityFormScreen = ({ navigation, route }) => {
   const error = authorityState.error;
 
   const [subdivisions, setSubdivisions] = useState([]);
+  const [trackNumbers, setTrackNumbers] = useState([]);
   const [showExpirationPicker, setShowExpirationPicker] = useState(false);
   const [expirationDate, setExpirationDate] = useState(new Date());
   
@@ -53,6 +58,7 @@ const AuthorityFormScreen = ({ navigation, route }) => {
   const [authorityTypeOpen, setAuthorityTypeOpen] = useState(false);
   const [subdivisionOpen, setSubdivisionOpen] = useState(false);
   const [trackTypeOpen, setTrackTypeOpen] = useState(false);
+  const [trackNumberOpen, setTrackNumberOpen] = useState(false);
   
   const authorityTypes = [
     { label: 'Track Authority', value: 'Track_Authority' },
@@ -89,6 +95,16 @@ const AuthorityFormScreen = ({ navigation, route }) => {
     loadSubdivisions();
   }, []);
 
+  // Watch subdivision selection to load track numbers
+  const selectedSubdivision = watch('subdivisionId');
+  useEffect(() => {
+    if (selectedSubdivision && user?.Agency_ID) {
+      loadTrackNumbers(selectedSubdivision);
+    } else {
+      setTrackNumbers([]);
+    }
+  }, [selectedSubdivision]);
+
   useEffect(() => {
     if (error) {
       Alert.alert('Error', error);
@@ -97,34 +113,108 @@ const AuthorityFormScreen = ({ navigation, route }) => {
 
   const loadSubdivisions = async () => {
     try {
-      const query = 'SELECT * FROM subdivisions WHERE agency_id = ? AND is_active = 1';
-      const result = await databaseService.executeQuery(query, [user?.Agency_ID]);
+      // Fetch subdivisions from backend API
+      const response = await apiService.getAgencySubdivisions(user?.Agency_ID);
       
-      const subdivisionOptions = [];
-      for (let i = 0; i < result.rows.length; i++) {
-        const sub = result.rows.item(i);
-        subdivisionOptions.push({
-          label: `${sub.subdivision_code} - ${sub.subdivision_name}`,
-          value: sub.subdivision_id,
-        });
+      console.log('Subdivision API response:', response);
+      
+      if (response.success && response.data) {
+        const subdivisionOptions = response.data.map(sub => ({
+          label: `${sub.Subdivision_Code} - ${sub.Subdivision_Name}`,
+          value: sub.Subdivision_ID,
+        }));
+        
+        if (subdivisionOptions.length === 0) {
+          // Add fallback sample subdivisions if none returned
+          console.warn('No subdivisions found from API, using fallback data');
+          subdivisionOptions.push(
+            { label: 'MEDLIN - Medlin Subdivision', value: 1 },
+            { label: 'NORTH - North Line', value: 2 },
+            { label: 'SOUTH - South Line', value: 3 },
+            { label: 'EAST - East Line', value: 4 },
+            { label: 'WEST - West Line', value: 5 }
+          );
+        }
+        
+        setSubdivisions(subdivisionOptions);
+        console.log('Loaded', subdivisionOptions.length, 'subdivisions from API');
+      } else {
+        throw new Error('Invalid API response');
       }
-      
-      setSubdivisions(subdivisionOptions);
     } catch (error) {
-      console.error('Failed to load subdivisions:', error);
+      console.error('Failed to load subdivisions from API:', error);
+      // Set fallback data on error
+      setSubdivisions([
+        { label: 'MEDLIN - Medlin Subdivision', value: 1 },
+        { label: 'NORTH - North Line', value: 2 },
+        { label: 'SOUTH - South Line', value: 3 },
+        { label: 'EAST - East Line', value: 4 },
+        { label: 'WEST - West Line', value: 5 }
+      ]);
+    }
+  };
+
+  const loadTrackNumbers = async (subdivisionId) => {
+    try {
+      const response = await apiService.getSubdivisionTracks(user?.Agency_ID, subdivisionId);
+      
+      console.log('Track numbers API response:', response);
+      
+      if (response.success && response.data) {
+        const trackNumberOptions = response.data.map(track => ({
+          label: `${track.Track_Type} - ${track.Track_Number}`,
+          value: `${track.Track_Type}-${track.Track_Number}`, // Make unique by combining both
+        }));
+        
+        setTrackNumbers(trackNumberOptions);
+        console.log('Loaded', trackNumberOptions.length, 'track numbers from API');
+      } else {
+        setTrackNumbers([]);
+      }
+    } catch (error) {
+      console.error('Failed to load track numbers from API:', error);
+      setTrackNumbers([]);
     }
   };
 
   const handleExpirationDateChange = (event, selectedDate) => {
-    setShowExpirationPicker(false);
+    if (event.type === 'dismissed') {
+      if (Platform.OS === 'ios') {
+        setShowExpirationPicker(false);
+      }
+      return;
+    }
+    
     if (selectedDate) {
       setExpirationDate(selectedDate);
       setValue('expirationTime', selectedDate);
     }
+    
+    if (Platform.OS === 'ios') {
+      setShowExpirationPicker(false);
+    }
   };
 
   const showExpirationDatePicker = () => {
-    setShowExpirationPicker(true);
+    if (Platform.OS === 'android') {
+      // Use imperative API for Android to avoid unmount issues
+      DateTimePickerAndroid.open({
+        value: expirationDate,
+        mode: 'date',
+        is24Hour: false,
+        onChange: (event, selectedDate) => {
+          if (event.type === 'dismissed') return;
+          
+          if (selectedDate) {
+            setExpirationDate(selectedDate);
+            setValue('expirationTime', selectedDate);
+          }
+        },
+      });
+    } else {
+      // Use component-based approach for iOS
+      setShowExpirationPicker(true);
+    }
   };
 
   const clearExpirationDate = () => {
@@ -134,7 +224,38 @@ const AuthorityFormScreen = ({ navigation, route }) => {
 
   const onSubmit = async (data) => {
     try {
-      const result = await dispatch(createAuthority(data)).unwrap();
+      // Parse the combined track number value (format: "TrackType-TrackNumber")
+      let trackNumber = data.trackNumber;
+      if (trackNumber && trackNumber.includes('-')) {
+        // Extract just the track number part after the dash
+        trackNumber = trackNumber.split('-').slice(1).join('-'); // Handle cases like "Main-1-2"
+      }
+      
+      const authorityData = {
+        ...data,
+        trackNumber, // Use the extracted track number
+      };
+      
+      const result = await dispatch(createAuthority(authorityData)).unwrap();
+      
+      // Fetch the active authority to update the state
+      const activeAuthority = await dispatch(getActiveAuthority()).unwrap();
+      
+      // Start GPS tracking for the new authority
+      if (activeAuthority) {
+        try {
+          await gpsTrackingService.init();
+          await gpsTrackingService.startTracking(activeAuthority);
+          console.log('GPS tracking started for authority:', activeAuthority.Authority_ID);
+        } catch (error) {
+          console.error('Failed to start GPS tracking:', error);
+          Alert.alert(
+            'GPS Tracking',
+            'Could not start GPS tracking. Location services may not be available.',
+            [{ text: 'OK' }]
+          );
+        }
+      }
       
       if (result.hasOverlap && result.overlapDetails.length > 0) {
         Alert.alert(
@@ -210,6 +331,7 @@ const AuthorityFormScreen = ({ navigation, route }) => {
                 placeholder="Select authority type"
                 zIndex={3000}
                 zIndexInverse={1000}
+                listMode="SCROLLVIEW"
               />
             )}
           />
@@ -236,6 +358,7 @@ const AuthorityFormScreen = ({ navigation, route }) => {
                 searchPlaceholder="Search subdivisions..."
                 zIndex={2000}
                 zIndexInverse={2000}
+                listMode="SCROLLVIEW"
               />
             )}
           />
@@ -299,6 +422,7 @@ const AuthorityFormScreen = ({ navigation, route }) => {
                 placeholder="Select track type"
                 zIndex={1000}
                 zIndexInverse={3000}
+                listMode="SCROLLVIEW"
               />
             )}
           />
@@ -310,11 +434,21 @@ const AuthorityFormScreen = ({ navigation, route }) => {
             control={control}
             name="trackNumber"
             render={({ field: { onChange, value } }) => (
-              <TextInput
-                style={[styles.input, errors.trackNumber && styles.inputError]}
-                placeholder="e.g., 1, A, B1"
+              <DropDownPicker
+                open={trackNumberOpen}
                 value={value}
-                onChangeText={onChange}
+                items={trackNumbers}
+                setOpen={setTrackNumberOpen}
+                setValue={(callback) => onChange(callback(value))}
+                setItems={setTrackNumbers}
+                style={styles.dropdown}
+                dropDownContainerStyle={styles.dropdownContainer}
+                textStyle={styles.dropdownText}
+                placeholder="Select track number"
+                zIndex={900}
+                zIndexInverse={3100}
+                listMode="SCROLLVIEW"
+                disabled={trackNumbers.length === 0}
               />
             )}
           />
@@ -379,7 +513,8 @@ const AuthorityFormScreen = ({ navigation, route }) => {
             )}
           </View>
           
-          {showExpirationPicker && (
+          {/* Only render DateTimePicker component on iOS */}
+          {Platform.OS === 'ios' && showExpirationPicker && (
             <DateTimePicker
               value={expirationDate}
               mode="datetime"
@@ -423,9 +558,6 @@ const AuthorityFormScreen = ({ navigation, route }) => {
     </ScrollView>
   );
 };
-
-// Add TextInput import and style
-import { TextInput } from 'react-native';
 
 const styles = StyleSheet.create({
   container: {

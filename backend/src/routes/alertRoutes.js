@@ -12,6 +12,7 @@ router.put('/config/:configId', alertController.updateAlertConfiguration);
 
 router.get('/user', alertController.getUserAlerts);
 router.post('/:alertId/read', alertController.markAlertAsRead);
+router.delete('/:alertId', alertController.deleteAlert);
 router.get('/stats/:agencyId', alertController.getAlertStats);
 router.get('/:agencyId/history', alertController.getAlertHistory);
 

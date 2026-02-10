@@ -1,5 +1,24 @@
 {
   "android": {
     "package": "com.odede.herzogmonorepo"
+  },
+  "extra": {
+    "eas": {
+      "projectId": "12e51e74-8a65-46c4-a6d7-fc0030ccdc70"
+    }
+  },
+  "expo": {
+    "ios": {
+      "bundleIdentifier": "com.odede.herzogmonorepo",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "12e51e74-8a65-46c4-a6d7-fc0030ccdc70"
+      }
+    },
+    "owner": "odede"
   }
 }

@@ -102,7 +102,7 @@ BEGIN
     CREATE TABLE Branding_Configurations (
         Branding_ID INT PRIMARY KEY IDENTITY(1,1),
         Agency_ID INT FOREIGN KEY REFERENCES Agencies(Agency_ID) ON DELETE CASCADE,
-        App_Name NVARCHAR(100) DEFAULT 'Herzog Rail Authority',
+        App_Name NVARCHAR(100) DEFAULT 'Sidekick',
         Primary_Color VARCHAR(10) DEFAULT '#000000',
         Secondary_Color VARCHAR(10) DEFAULT '#FFFFFF',
         Accent_Color VARCHAR(10) DEFAULT '#FFD100',

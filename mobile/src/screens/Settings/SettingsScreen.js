@@ -204,7 +204,7 @@ const SettingsScreen = () => {
       {renderActionRow('logout', 'Logout', theme.colors.error, handleLogout)}
 
       <View style={styles.footer}>
-        <Text style={styles.footerText}>Herzog Rail Authority</Text>
+        <Text style={styles.footerText}>Sidekick</Text>
         <Text style={styles.footerSubtext}>© 2026 All Rights Reserved</Text>
       </View>
     </ScrollView>

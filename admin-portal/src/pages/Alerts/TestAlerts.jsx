@@ -25,7 +25,7 @@ import api from '../../services/api';
 
 const TestAlerts = () => {
   const { user } = useSelector((state) => state.auth);
-  const agencyId = user?.agencyId;
+  const agencyId = user?.Agency_ID || 17;
 
   const [sending, setSending] = useState(false);
   const [success, setSuccess] = useState(null);

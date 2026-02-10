@@ -50,4 +50,11 @@ router.get('/agency/:agencyId', offlineController.downloadAgencyData);
  */
 router.get('/agency/:agencyId/subdivision/:subdivisionId', offlineController.downloadSubdivisionData);
 
+/**
+ * @route   GET /api/offline/subdivision/:subdivisionId
+ * @desc    Download subdivision data (uses user's agency from token)
+ * @access  Private
+ */
+router.get('/subdivision/:subdivisionId', offlineController.downloadSubdivisionDataByUser);
+
 module.exports = router;

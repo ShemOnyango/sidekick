@@ -1,4 +1,4 @@
-# Herzog Rail Authority - Database Schema Documentation
+# Sidekick - Database Schema Documentation
 
 ## Overview
 

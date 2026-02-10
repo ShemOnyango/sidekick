@@ -212,7 +212,7 @@ export const SCHEMA = {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       branding_id INTEGER NOT NULL,
       agency_id INTEGER NOT NULL,
-      app_name TEXT DEFAULT 'Herzog Rail Authority',
+      app_name TEXT DEFAULT 'Sidekick',
       primary_color TEXT DEFAULT '#000000',
       secondary_color TEXT DEFAULT '#FFFFFF',
       accent_color TEXT DEFAULT '#FFD100',

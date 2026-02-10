@@ -1,24 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
+  ScrollView,
   TouchableOpacity,
   Image,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { deletePin } from '../../store/slices/pinSlice';
+import { deletePin, fetchPins } from '../../store/slices/pinSlice';
 import theme from '../../constants/theme';
 
 const PinsScreen = () => {
   const navigation = useNavigation();
   const dispatch = useDispatch();
-  const { pins } = useSelector((state) => state.pins);
+  const { pins, loading } = useSelector((state) => state.pins);
+  const { currentAuthority } = useSelector((state) => state.authority);
   const [selectedCategory, setSelectedCategory] = useState('All');
+
+  // Fetch pins when screen is focused
+  useFocusEffect(
+    React.useCallback(() => {
+      if (currentAuthority?.Authority_ID) {
+        dispatch(fetchPins(currentAuthority.Authority_ID));
+      }
+    }, [currentAuthority, dispatch])
+  );
 
   const categories = ['All', 'Scrap-Rail', 'Scrap-Ties', 'Monitor Location', 'Defect', 'Obstruction'];
 
@@ -88,7 +100,7 @@ const PinsScreen = () => {
     <View style={styles.pinCard}>
       <View style={styles.pinHeader}>
         <View style={styles.categoryBadge}>
-          <Icon 
+          <MaterialCommunityIcons 
             name={getCategoryIcon(item.category)} 
             size={20} 
             color={getCategoryColor(item.category)} 
@@ -174,40 +186,47 @@ const PinsScreen = () => {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.filterContainer}>
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={categories}
-          keyExtractor={(item) => item}
-          renderItem={({ item }) => (
-            <TouchableOpacity
+      <ScrollView 
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterContainer}
+        contentContainerStyle={styles.filterContent}
+      >
+        {categories.map((item) => (
+          <TouchableOpacity
+            key={item}
+            style={[
+              styles.filterChip,
+              selectedCategory === item && styles.filterChipActive,
+            ]}
+            onPress={() => setSelectedCategory(item)}
+          >
+            <Text
               style={[
-                styles.filterChip,
-                selectedCategory === item && styles.filterChipActive,
+                styles.filterChipText,
+                selectedCategory === item && styles.filterChipTextActive,
               ]}
-              onPress={() => setSelectedCategory(item)}
             >
-              <Text
-                style={[
-                  styles.filterChipText,
-                  selectedCategory === item && styles.filterChipTextActive,
-                ]}
-              >
-                {item}
-              </Text>
-            </TouchableOpacity>
-          )}
-        />
-      </View>
+              {item}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
-      <FlatList
-        data={filteredPins}
-        keyExtractor={(item) => item.id}
-        renderItem={renderPin}
-        contentContainerStyle={styles.listContainer}
-        ListEmptyComponent={renderEmptyState}
-      />
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.accent} />
+          <Text style={styles.loadingText}>Loading pins...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={filteredPins}
+          keyExtractor={(item) => item.id}
+          renderItem={renderPin}
+          contentContainerStyle={styles.listContainer}
+          ListEmptyComponent={renderEmptyState}
+        />
+      )}
     </View>
   );
 };
@@ -354,6 +373,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: theme.colors.textSecondary,
     textAlign: 'center',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: theme.colors.textSecondary,
+    marginTop: theme.spacing.md,
   },
 });
 

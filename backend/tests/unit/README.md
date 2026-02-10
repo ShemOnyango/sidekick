@@ -1,6 +1,6 @@
 # Unit Tests
 
-This directory contains comprehensive unit tests for the Herzog Rail Authority backend.
+This directory contains comprehensive unit tests for the Sidekick backend.
 
 ## Test Structure
 

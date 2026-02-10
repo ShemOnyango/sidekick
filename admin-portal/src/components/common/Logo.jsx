@@ -13,7 +13,7 @@ const Logo = ({ variant = 'black', height = 40, ...props }) => {
     <Box
       component="img"
       src={`/static/logos/HerzogLogo${logoVariant.charAt(0).toUpperCase() + logoVariant.slice(1)}.png`}
-      alt="Herzog Rail Authority"
+      alt="Sidekick"
       height={height}
       sx={{
         objectFit: 'contain',

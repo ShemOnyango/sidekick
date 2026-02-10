@@ -25,11 +25,15 @@ import {
 } from '../../constants/theme';
 import { getCurrentTrack, interpolateMilepost } from '../../utils/trackGeometry';
 import { addPin } from '../../store/slices/pinSlice';
+import { CONFIG } from '../../constants/config';
+import apiService from '../../services/api/ApiService';
+import permissionManager from '../../utils/permissionManager';
+import logger from '../../utils/logger';
 
 const PinDropScreen = ({ navigation, route }) => {
   const dispatch = useDispatch();
   const { user } = useSelector((state) => state.auth);
-  const { activeAuthority } = useSelector((state) => state.authority);
+  const { currentAuthority } = useSelector((state) => state.authority);
   
   const [pinCategories, setPinCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('');
@@ -45,27 +49,45 @@ const PinDropScreen = ({ navigation, route }) => {
   const [timestamp] = useState(new Date().toISOString());
 
   useEffect(() => {
-    fetchPinCategories();
+    if (user?.token) {
+      fetchPinCategories();
+    }
     getCurrentLocation();
-  }, []);
+  }, [user?.token]);
 
   const fetchPinCategories = async () => {
     try {
-      const response = await fetch(
-        `${process.env.EXPO_PUBLIC_API_URL}/config/agencies/${user.Agency_ID}/pin-types/categories`
+      logger.info('Pins', 'Fetching pin types for agency:', user.Agency_ID);
+      const response = await apiService.api.get(
+        `/config/agencies/${user.Agency_ID}/pin-types`
       );
-      const data = await response.json();
-      setPinCategories(data);
+      
+      logger.info('Pins', 'Pin types API response:', response.data);
+      
+      // Handle both direct array and nested data response
+      const data = response.data.data?.pinTypes || response.data.pinTypes || response.data || [];
+      
+      logger.info('Pins', 'Extracted pin types data:', data);
+      
+      if (data.length > 0) {
+        // Map to format expected by UI: combine category and subtype as display name
+        const formattedData = data.map(pt => ({
+          Pin_Type_ID: pt.Pin_Type_ID,
+          Type_Name: `${pt.Pin_Category} - ${pt.Pin_Subtype}`,
+          Pin_Category: pt.Pin_Category,
+          Pin_Subtype: pt.Pin_Subtype,
+          Color: pt.Color
+        }));
+        logger.info('Pins', 'Formatted pin categories:', formattedData);
+        setPinCategories(formattedData);
+      } else {
+        logger.warn('Pins', 'No pin types returned from API');
+        setPinCategories([]);
+      }
     } catch (error) {
-      console.error('Error fetching pin categories:', error);
-      // Default categories if API fails
-      setPinCategories([
-        { Pin_Type_ID: 1, Type_Name: 'Scrap-Rail' },
-        { Pin_Type_ID: 2, Type_Name: 'Scrap-Ties' },
-        { Pin_Type_ID: 3, Type_Name: 'Monitor Location' },
-        { Pin_Type_ID: 4, Type_Name: 'Defect' },
-        { Pin_Type_ID: 5, Type_Name: 'Obstruction' },
-      ]);
+      logger.error('Pins', 'Error fetching pin categories:', error);
+      // Keep empty array if API fails - user must have valid categories
+      setPinCategories([]);
     }
   };
 
@@ -73,8 +95,8 @@ const PinDropScreen = ({ navigation, route }) => {
     try {
       setLoadingLocation(true);
       
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
+      const granted = await permissionManager.requestLocationPermission(false);
+      if (!granted) {
         Alert.alert('Permission Denied', 'Location permission is required to drop pins');
         return;
       }
@@ -89,7 +111,7 @@ const PinDropScreen = ({ navigation, route }) => {
       });
 
       // Get track and milepost if we have subdivision data
-      if (activeAuthority && route.params?.mileposts) {
+      if (currentAuthority && route.params?.mileposts) {
         const trackInfo = getCurrentTrack(
           position.coords.latitude,
           position.coords.longitude,
@@ -105,7 +127,7 @@ const PinDropScreen = ({ navigation, route }) => {
         }
       }
     } catch (error) {
-      console.error('Error getting location:', error);
+      logger.error('Pins', 'Error getting location:', error);
       Alert.alert('Error', 'Failed to get current location');
     } finally {
       setLoadingLocation(false);
@@ -113,8 +135,8 @@ const PinDropScreen = ({ navigation, route }) => {
   };
 
   const takePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
+    const granted = await permissionManager.requestCameraPermission();
+    if (!granted) {
       Alert.alert('Permission Denied', 'Camera permission is required');
       return;
     }
@@ -132,8 +154,8 @@ const PinDropScreen = ({ navigation, route }) => {
   };
 
   const pickPhoto = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
+    const granted = await permissionManager.requestPhotoLibraryPermission();
+    if (!granted) {
       Alert.alert('Permission Denied', 'Photo library permission is required');
       return;
     }
@@ -165,19 +187,23 @@ const PinDropScreen = ({ navigation, route }) => {
       setLoading(true);
 
       const pinData = {
-        User_ID: user.User_ID,
-        Agency_ID: user.Agency_ID,
-        Authority_ID: activeAuthority?.Authority_ID,
-        Pin_Type_ID: parseInt(selectedCategory),
-        Latitude: location.latitude,
-        Longitude: location.longitude,
-        Track_Type: track?.type,
-        Track_Number: track?.number,
-        Milepost: milepost,
-        Notes: notes,
-        Photo_URI: photo?.uri,
-        Timestamp: timestamp,
+        userId: user.User_ID,
+        agencyId: user.Agency_ID,
+        authorityId: currentAuthority?.Authority_ID || null,
+        pinTypeId: parseInt(selectedCategory),
+        latitude: location.latitude,
+        longitude: location.longitude,
+        trackType: track?.type || null,
+        trackNumber: track?.number || null,
+        mp: milepost || null,
+        notes: notes || null,
+        photoUrl: photo?.uri || null,
+        timestamp: timestamp,
       };
+
+      logger.info('Pins', 'About to save pin with data:', pinData);
+      logger.info('Pins', 'Selected category ID:', selectedCategory);
+      logger.info('Pins', 'Available categories:', pinCategories);
 
       // Upload photo if exists
       if (photo) {
@@ -187,40 +213,39 @@ const PinDropScreen = ({ navigation, route }) => {
           type: 'image/jpeg',
           name: `pin_${Date.now()}.jpg`,
         });
+        
+        // Add authorityId if available
+        if (currentAuthority?.Authority_ID) {
+          formData.append('authorityId', currentAuthority.Authority_ID.toString());
+        }
 
-        const uploadResponse = await fetch(
-          `${process.env.EXPO_PUBLIC_API_URL}/upload/pin-photo`,
-          {
-            method: 'POST',
-            body: formData,
-            headers: {
-              'Content-Type': 'multipart/form-data',
-            },
-          }
-        );
-
-        if (uploadResponse.ok) {
-          const uploadData = await uploadResponse.json();
-          pinData.Photo_URL = uploadData.url;
+        const uploadData = await apiService.uploadPinPhoto(formData);
+        logger.info('Pins', 'Photo upload response:', uploadData);
+        if (uploadData.data?.url) {
+          pinData.photoUrl = uploadData.data.url;
+        } else if (uploadData.url) {
+          pinData.photoUrl = uploadData.url;
         }
       }
 
       // Save pin to backend
-      const response = await fetch(
-        `${process.env.EXPO_PUBLIC_API_URL}/pins`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(pinData),
-        }
-      );
+      const savedPin = await apiService.createPin(pinData);
 
-      if (!response.ok) throw new Error('Failed to save pin');
-
-      const savedPin = await response.json();
-
-      // Add to Redux state
-      dispatch(addPin(savedPin));
+      // Add to Redux state with proper field mapping
+      const pinToSave = savedPin.data || savedPin;
+      dispatch(addPin({
+        id: pinToSave.Pin_ID,
+        category: selectedCategory ? pinCategories.find(c => c.Pin_Type_ID === parseInt(selectedCategory))?.Type_Name : 'Unknown',
+        latitude: pinToSave.Latitude,
+        longitude: pinToSave.Longitude,
+        trackType: pinToSave.Track_Type,
+        trackNumber: pinToSave.Track_Number,
+        milepost: pinToSave.MP,
+        notes: pinToSave.Notes,
+        photoUri: pinToSave.Photo_URL,
+        timestamp: pinToSave.Created_Date || timestamp,
+        syncPending: false
+      }));
 
       Alert.alert(
         'Pin Dropped',
@@ -228,11 +253,24 @@ const PinDropScreen = ({ navigation, route }) => {
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
     } catch (error) {
-      console.error('Error saving pin:', error);
+      logger.error('Pins', 'Error saving pin:', error);
       Alert.alert('Error', 'Failed to save pin. It will be synced when connection is restored.');
       
-      // Save locally for offline sync
-      dispatch(addPin({ ...pinData, syncPending: true }));
+      // Save locally for offline sync with proper field mapping
+      dispatch(addPin({
+        id: `temp_${Date.now()}`,
+        category: selectedCategory ? pinCategories.find(c => c.Pin_Type_ID === parseInt(selectedCategory))?.Type_Name : 'Unknown',
+        latitude: location.latitude,
+        longitude: location.longitude,
+        trackType: track?.type,
+        trackNumber: track?.number,
+        milepost: milepost,
+        notes: notes,
+        photoUri: photo?.uri,
+        timestamp: timestamp,
+        syncPending: true,
+        _pendingData: pinData // Keep original data for sync
+      }));
       navigation.goBack();
     } finally {
       setLoading(false);
@@ -267,9 +305,11 @@ const PinDropScreen = ({ navigation, route }) => {
               selectedValue={selectedCategory}
               onValueChange={(value) => setSelectedCategory(value)}
               style={styles.picker}
+              dropdownIconColor={COLORS.accent}
+              mode="dropdown"
             >
               <Picker.Item label="Select Category" value="" />
-              {pinCategories.map((category) => (
+              {(pinCategories || []).map((category) => (
                 <Picker.Item
                   key={category.Pin_Type_ID}
                   label={category.Type_Name}
@@ -278,6 +318,9 @@ const PinDropScreen = ({ navigation, route }) => {
               ))}
             </Picker>
           </View>
+          {pinCategories.length === 0 && (
+            <Text style={styles.loadingText}>Loading categories...</Text>
+          )}
         </View>
 
         {/* Photo Capture */}
@@ -338,7 +381,7 @@ const PinDropScreen = ({ navigation, route }) => {
 
             {track && (
               <View style={styles.infoRow}>
-                <Ionicons name="railroad" size={20} color={COLORS.accent} />
+                <Ionicons name="train" size={20} color={COLORS.accent} />
                 <Text style={styles.infoLabel}>Track:</Text>
                 <Text style={styles.infoValue}>
                   {track.type} {track.number}
@@ -443,9 +486,12 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     borderRadius: BORDER_RADIUS.sm,
     overflow: 'hidden',
+    minHeight: 50,
   },
   picker: {
     color: COLORS.text,
+    backgroundColor: COLORS.surface,
+    height: 50,
   },
   photoContainer: {
     minHeight: 200,
@@ -545,3 +591,4 @@ const styles = StyleSheet.create({
 });
 
 export default PinDropScreen;
+

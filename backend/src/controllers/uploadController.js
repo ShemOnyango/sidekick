@@ -27,38 +27,33 @@ class UploadController {
 
       const user = req.user;
       const { authorityId, pinId } = req.body;
-
-      if (!authorityId) {
-        return res.status(400).json({
-          success: false,
-          error: 'Authority ID is required'
-        });
-      }
-
-      // Verify authority belongs to user
       const pool = getConnection();
-      const authorityQuery = `
-        SELECT 1 
-        FROM Authorities 
-        WHERE Authority_ID = @authorityId 
-          AND User_ID = @userId 
-          AND Is_Active = 1
-      `;
 
-      const authorityResult = await pool.request()
-        .input('authorityId', sql.Int, authorityId)
-        .input('userId', sql.Int, user.User_ID)
+      // Verify authority belongs to user if authorityId is provided
+      if (authorityId) {
+        const authorityQuery = `
+          SELECT 1 
+          FROM Authorities 
+          WHERE Authority_ID = @authorityId 
+            AND User_ID = @userId 
+            AND Is_Active = 1
+        `;
+
+        const authorityResult = await pool.request()
+          .input('authorityId', sql.Int, authorityId)
+          .input('userId', sql.Int, user.User_ID)
         .query(authorityQuery);
 
-      if (authorityResult.recordset.length === 0) {
-        // Remove uploaded file since authority is invalid
-        const fs = require('fs');
-        fs.unlinkSync(req.file.path);
-        
-        return res.status(403).json({
-          success: false,
-          error: 'Authority not found or access denied'
-        });
+        if (authorityResult.recordset.length === 0) {
+          // Remove uploaded file since authority is invalid
+          const fs = require('fs');
+          fs.unlinkSync(req.file.path);
+          
+          return res.status(403).json({
+            success: false,
+            error: 'Authority not found or access denied'
+          });
+        }
       }
 
       // Get public URL for the file
