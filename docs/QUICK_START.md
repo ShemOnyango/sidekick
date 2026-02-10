@@ -140,3 +140,7 @@ curl -X POST http://localhost:5000/api/authorities \
     "employeeNameDisplay": "Ryan Medlin",
     "employeeContactDisplay": "555-987-6543"
   }'
+
+## Support & Maintenance
+- Built by OdedeTech Hub - [Bringing ideas into life]
+- You can reach out for support or further partnership through [shemonyango06@gmail.com]
