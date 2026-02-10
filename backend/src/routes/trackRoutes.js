@@ -12,4 +12,7 @@ router.post('/calculate-distance', auth, trackController.calculateDistance);
 // Interpolate milepost from GPS coordinates
 router.post('/interpolate-milepost', auth, trackController.interpolateMilepost);
 
+// Track location search
+router.post('/location-search', auth, trackController.searchTrackLocation);
+
 module.exports = router;

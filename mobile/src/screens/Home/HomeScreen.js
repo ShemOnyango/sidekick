@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, ActivityIndicator, TextInput } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -57,7 +57,7 @@ const HomeScreen = ({ navigation }) => {
   const isTracking = gps?.isTracking;
 
   const [gpsActive, setGpsActive] = useState(false);
-  const [menuVisible, setMenuVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [layersVisible, setLayersVisible] = useState(false);
   const [layersLoading, setLayersLoading] = useState(false);
   const [layers, setLayers] = useState([]);
@@ -73,12 +73,6 @@ const HomeScreen = ({ navigation }) => {
   useEffect(() => {
     setGpsActive(isTracking);
   }, [isTracking]);
-
-  useEffect(() => {
-    if (menuVisible) {
-      setLayersVisible(false);
-    }
-  }, [menuVisible]);
 
   useEffect(() => {
     if (currentPosition) {
@@ -282,8 +276,8 @@ const HomeScreen = ({ navigation }) => {
         showsUserLocation={true}
         showsMyLocationButton={false}
         showsCompass={false}
-        scrollEnabled={!menuVisible}
-        zoomEnabled={!menuVisible}
+        scrollEnabled={!layersVisible}
+        zoomEnabled={!layersVisible}
         rotateEnabled={false}
         pitchEnabled={false}
       >
@@ -303,18 +297,20 @@ const HomeScreen = ({ navigation }) => {
         ))}
       </MapView>
 
-      {/* Menu Toggle Button */}
-      <TouchableOpacity 
-        style={styles.menuButton}
-        onPress={() => setMenuVisible(!menuVisible)}
-        activeOpacity={0.7}
-      >
-        <MaterialCommunityIcons 
-          name={menuVisible ? 'close' : 'menu'} 
-          size={28} 
-          color="#FFFFFF" 
+      {/* Search Bar */}
+      <View style={styles.searchBar}>
+        <MaterialCommunityIcons name="magnify" size={18} color="#999999" />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search for stations, tracks, mileposts..."
+          placeholderTextColor="#999999"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          onFocus={() => navigation.navigate('Search', { initialQuery: searchQuery })}
+          onSubmitEditing={() => navigation.navigate('Search', { initialQuery: searchQuery })}
+          returnKeyType="search"
         />
-      </TouchableOpacity>
+      </View>
 
       {/* Layers Toggle Button */}
       <TouchableOpacity
@@ -374,73 +370,6 @@ const HomeScreen = ({ navigation }) => {
         </View>
       )}
 
-      {menuVisible && (
-        <View style={styles.menuOverlay}>
-          {/* Header */}
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Dashboard</Text>
-          </View>
-
-          <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            {/* Welcome Section */}
-            <View style={styles.welcomeSection}>
-              <Text style={styles.title}>Sidekick</Text>
-              <Text style={styles.subtitle}>Welcome, {user?.Employee_Name || 'System Administrator'}</Text>
-            </View>
-
-            {/* Quick Actions */}
-            <View style={styles.section}>
-              <Text style={styles.sectionHeader}>Quick Actions</Text>
-              <View style={styles.quickActionsGrid}>
-                {quickActions.map((action) => (
-                  <TouchableOpacity
-                    key={action.id}
-                    style={styles.actionButton}
-                    onPress={action.onPress}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[styles.actionIconWrapper, { backgroundColor: action.color + '15' }]}>
-                      <MaterialCommunityIcons name={action.icon} size={40} color={action.color} />
-                      {action.badge > 0 && (
-                        <View style={styles.actionBadge}>
-                          <Text style={styles.actionBadgeText}>{action.badge}</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={styles.actionText}>{action.title}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            {/* Today's Summary */}
-            <View style={styles.section}>
-              <Text style={styles.sectionHeader}>Today's Summary</Text>
-              <View style={styles.summaryCard}>
-                <View style={styles.summaryRow}>
-                  <View style={styles.summaryItem}>
-                    <View style={styles.summaryIconWrapper}>
-                      <MaterialCommunityIcons name="calendar-check" size={32} color="#34C759" />
-                    </View>
-                    <Text style={styles.summaryValue}>{activeAuthoritiesCount}</Text>
-                    <Text style={styles.summaryLabel}>Active{'\n'}Authorities</Text>
-                  </View>
-                  
-                  <View style={styles.summaryDivider} />
-                  
-                  <View style={styles.summaryItem}>
-                    <View style={styles.summaryIconWrapper}>
-                      <MaterialCommunityIcons name="map-marker-radius" size={32} color="#007AFF" />
-                    </View>
-                    <Text style={styles.summaryValue}>{nearbyInfrastructureCount}</Text>
-                    <Text style={styles.summaryLabel}>Nearby{'\n'}Infrastructure</Text>
-                  </View>
-                </View>
-              </View>
-            </View>
-          </ScrollView>
-        </View>
-      )}
     </View>
   );
 };
@@ -457,29 +386,35 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  menuButton: {
+  searchBar: {
     position: 'absolute',
     top: 20,
     left: 20,
     zIndex: 1000,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    right: 76,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 5,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  searchInput: {
+    flex: 1,
+    color: '#000000',
+    fontSize: 13,
   },
   layersButton: {
     position: 'absolute',
     top: 20,
-    left: 76,
+    left: undefined,
+    right: 20,
     zIndex: 1000,
     width: 44,
     height: 44,

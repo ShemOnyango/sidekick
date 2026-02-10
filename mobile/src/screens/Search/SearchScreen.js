@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, SectionList, ActivityIndicator, Platform, Alert } from 'react-native';
 import { useSelector } from 'react-redux';
+import { useRoute } from '@react-navigation/native';
 import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import apiService from '../../services/api/ApiService';
@@ -19,6 +20,7 @@ const customMapStyle = [
 ];
 
 const SearchScreen = () => {
+  const route = useRoute();
   const mapRef = useRef(null);
   const { currentPosition } = useSelector((state) => state.gps);
   const { activeAuthority } = useSelector((state) => state.authority);
@@ -47,6 +49,13 @@ const SearchScreen = () => {
       });
     }
   }, [currentPosition]);
+
+  useEffect(() => {
+    const initialQuery = route.params?.initialQuery;
+    if (initialQuery && typeof initialQuery === 'string') {
+      setQuery(initialQuery);
+    }
+  }, [route.params?.initialQuery]);
 
   useEffect(() => {
     const loadLayers = async () => {

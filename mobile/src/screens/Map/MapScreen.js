@@ -9,12 +9,17 @@ import {
   ActivityIndicator,
   Switch,
   Linking,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSelector, useDispatch } from 'react-redux';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getActiveAuthority } from '../../store/slices/authoritySlice';
 import { saveGPSLog } from '../../store/slices/gpsSlice';
 import socketService from '../../services/socket/SocketService';
@@ -36,6 +41,7 @@ import permissionManager from '../../utils/permissionManager';
 import logger from '../../utils/logger';
 import { setLayerVisibility } from '../../store/slices/mapSlice';
 import { useIsFocused } from '@react-navigation/native';
+import { logout } from '../../store/slices/authSlice';
 import { 
   COLORS, 
   SPACING, 
@@ -84,6 +90,7 @@ const MapScreen = () => {
   const layerFetchTimeout = useRef(null);
   const isMounted = useRef(true);
   const isFocused = useIsFocused();
+  const HOME_POSITION_KEY = '@HerzogDB:map_home_position';
   
   const { user } = useSelector((state) => state.auth);
   const { currentAuthority } = useSelector((state) => state.authority);
@@ -112,6 +119,17 @@ const MapScreen = () => {
   const [layersLoading, setLayersLoading] = useState(false);
   const [layerData, setLayerData] = useState({});
   const [layerVisibility, setLocalLayerVisibility] = useState({});
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [homePosition, setHomePosition] = useState(null);
+  const [trackSearchVisible, setTrackSearchVisible] = useState(false);
+  const [trackSearchLoading, setTrackSearchLoading] = useState(false);
+  const [trackSearch, setTrackSearch] = useState({
+    lineSegment: '',
+    milepost: '',
+    trackType: '',
+    trackNumber: '',
+  });
+  const [trackSearchResult, setTrackSearchResult] = useState(null);
   
   // New Follow-Me mode state
   const [currentMilepost, setCurrentMilepost] = useState(null);
@@ -197,9 +215,31 @@ const MapScreen = () => {
   }, []);
 
   useEffect(() => {
+    const loadHome = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(HOME_POSITION_KEY);
+        if (stored) {
+          setHomePosition(JSON.parse(stored));
+        }
+      } catch (error) {
+        console.warn('Failed to load home position:', error);
+      }
+    };
+    loadHome();
+  }, []);
+
+  useEffect(() => {
     if (currentAuthority && currentAuthority.Subdivision_ID) {
       loadMilepostData(currentAuthority.Subdivision_ID);
       setSubdivision(currentAuthority.Subdivision_Name);
+    }
+
+    if (currentAuthority) {
+      setTrackSearch((prev) => ({
+        ...prev,
+        trackType: prev.trackType || currentAuthority.Track_Type || '',
+        trackNumber: prev.trackNumber || currentAuthority.Track_Number || '',
+      }));
     }
   }, [currentAuthority]);
 
@@ -454,6 +494,120 @@ const MapScreen = () => {
     await Promise.all(
       visibleLayerIds.map((layerId) => loadLayerData(layerId, bounds))
     );
+  };
+
+  const handleMenuAction = async (action) => {
+    setMenuOpen(false);
+
+    if (action === 'home') {
+      if (!homePosition) {
+        Alert.alert('Home Position', 'No home position set yet.');
+        return;
+      }
+      mapRef.current?.animateToRegion(homePosition);
+      return;
+    }
+
+    if (action === 'set-home') {
+      const nextHome = {
+        latitude: region.latitude,
+        longitude: region.longitude,
+        latitudeDelta: region.latitudeDelta,
+        longitudeDelta: region.longitudeDelta,
+      };
+      setHomePosition(nextHome);
+      await AsyncStorage.setItem(HOME_POSITION_KEY, JSON.stringify(nextHome));
+      Alert.alert('Home Position', 'Home position saved.');
+      return;
+    }
+
+    if (action === 'reset-home') {
+      setHomePosition(null);
+      await AsyncStorage.removeItem(HOME_POSITION_KEY);
+      Alert.alert('Home Position', 'Home position cleared.');
+      return;
+    }
+
+    if (action === 'track-search') {
+      setTrackSearchVisible(true);
+      return;
+    }
+
+    if (action === 'logout') {
+      Alert.alert(
+        'Logout',
+        'Are you sure you want to log out?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Logout',
+            style: 'destructive',
+            onPress: () => dispatch(logout()),
+          },
+        ]
+      );
+    }
+  };
+
+  const handleTrackSearch = async () => {
+    if (!currentAuthority?.Subdivision_ID) {
+      Alert.alert('Track Search', 'No active subdivision available.');
+      return;
+    }
+
+    const milepostValue = parseFloat(trackSearch.milepost);
+    if (Number.isNaN(milepostValue)) {
+      Alert.alert('Track Search', 'Please enter a valid milepost.');
+      return;
+    }
+
+    setTrackSearchLoading(true);
+    try {
+      const response = await apiService.api.post('/tracks/location-search', {
+        subdivisionId: currentAuthority.Subdivision_ID,
+        ls: trackSearch.lineSegment || null,
+        milepost: milepostValue,
+        trackType: trackSearch.trackType || null,
+        trackNumber: trackSearch.trackNumber || null,
+      });
+
+      const data = response.data?.data;
+      if (!data?.latitude || !data?.longitude) {
+        Alert.alert('Track Search', 'No track location found for that criteria.');
+        return;
+      }
+
+      const nextRegion = {
+        latitude: data.latitude,
+        longitude: data.longitude,
+        latitudeDelta: 0.02,
+        longitudeDelta: 0.02,
+      };
+
+      setTrackSearchResult({
+        ...data,
+        latitude: data.latitude,
+        longitude: data.longitude,
+      });
+
+      mapRef.current?.animateToRegion(nextRegion);
+      setTrackSearchVisible(false);
+    } catch (error) {
+      console.error('Track search failed:', error);
+      const serverMessage = error?.response?.data?.error || error?.response?.data?.message || (error?.response ? `Server error: ${error.response.status}` : error.message);
+      // Log parameters used for the request to help debugging missing data on backend
+      console.warn('Track search params:', {
+        subdivisionId: currentAuthority?.Subdivision_ID,
+        ls: trackSearch.lineSegment || null,
+        milepost: trackSearch.milepost,
+        trackType: trackSearch.trackType || null,
+        trackNumber: trackSearch.trackNumber || null,
+      });
+
+      Alert.alert('Track Search', serverMessage || 'Failed to search for track location.');
+    } finally {
+      setTrackSearchLoading(false);
+    }
   };
 
   const updateTrackingInfo = () => {
@@ -952,6 +1106,24 @@ const MapScreen = () => {
           </Marker>
         ))}
 
+        {trackSearchResult && (
+          <Marker
+            key="track-search-result"
+            coordinate={{
+              latitude: trackSearchResult.latitude,
+              longitude: trackSearchResult.longitude,
+            }}
+            title="Track Location"
+            description={`MP ${trackSearchResult.milepost ?? ''}`}
+            pinColor="#FF7A00"
+            tracksViewChanges={false}
+          >
+            <View style={[styles.layerMarker, { borderColor: '#FF7A00' }]}>
+              <MaterialCommunityIcons name="crosshairs-gps" size={18} color="#FF7A00" />
+            </View>
+          </Marker>
+        )}
+
         {/* Authority boundaries */}
         {renderAuthorityBoundaries()}
         
@@ -1024,6 +1196,132 @@ const MapScreen = () => {
           color="#FFFFFF"
         />
       </TouchableOpacity>
+
+      {/* Hamburger Menu Button */}
+      <TouchableOpacity
+        style={styles.menuToggleButton}
+        onPress={() => setMenuOpen((prev) => !prev)}
+      >
+        <MaterialCommunityIcons name="menu" size={22} color="#FFFFFF" />
+      </TouchableOpacity>
+
+      {menuOpen && (
+        <View style={styles.mapMenu}>
+          <TouchableOpacity
+            style={styles.mapMenuItem}
+            onPress={() => handleMenuAction('home')}
+          >
+            <MaterialCommunityIcons name="home" size={16} color="#FF7A00" />
+            <Text style={styles.mapMenuText}>Go To Home Position</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.mapMenuItem}
+            onPress={() => handleMenuAction('set-home')}
+          >
+            <MaterialCommunityIcons name="home-edit" size={16} color="#FF7A00" />
+            <Text style={styles.mapMenuText}>Set Home Position</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.mapMenuItem}
+            onPress={() => handleMenuAction('reset-home')}
+          >
+            <MaterialCommunityIcons name="home-remove" size={16} color="#FF7A00" />
+            <Text style={styles.mapMenuText}>Reset Home Position</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.mapMenuItem}
+            onPress={() => handleMenuAction('track-search')}
+          >
+            <MaterialCommunityIcons name="map-search" size={16} color="#FF7A00" />
+            <Text style={styles.mapMenuText}>Track Location Search</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.mapMenuItem}
+            onPress={() => handleMenuAction('logout')}
+          >
+            <MaterialCommunityIcons name="logout" size={16} color="#FF3B30" />
+            <Text style={[styles.mapMenuText, { color: '#FF3B30' }]}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <Modal
+        visible={trackSearchVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTrackSearchVisible(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.trackSearchCard}>
+            <View style={styles.trackSearchHeader}>
+              <Text style={styles.trackSearchTitle}>Track Location Search</Text>
+              <TouchableOpacity onPress={() => setTrackSearchVisible(false)}>
+                <MaterialCommunityIcons name="close" size={18} color="#666666" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.trackSearchField}>
+              <Text style={styles.trackSearchLabel}>Line Segment</Text>
+              <TextInput
+                value={trackSearch.lineSegment}
+                onChangeText={(value) => setTrackSearch((prev) => ({ ...prev, lineSegment: value }))}
+                placeholder="LS"
+                placeholderTextColor="#999999"
+                style={styles.trackSearchInput}
+              />
+            </View>
+
+            <View style={styles.trackSearchField}>
+              <Text style={styles.trackSearchLabel}>Milepost</Text>
+              <TextInput
+                value={trackSearch.milepost}
+                onChangeText={(value) => setTrackSearch((prev) => ({ ...prev, milepost: value }))}
+                placeholder="MP"
+                placeholderTextColor="#999999"
+                keyboardType="numeric"
+                style={styles.trackSearchInput}
+              />
+            </View>
+
+            <View style={styles.trackSearchField}>
+              <Text style={styles.trackSearchLabel}>Track Type</Text>
+              <TextInput
+                value={trackSearch.trackType}
+                onChangeText={(value) => setTrackSearch((prev) => ({ ...prev, trackType: value }))}
+                placeholder="Track Type"
+                placeholderTextColor="#999999"
+                style={styles.trackSearchInput}
+              />
+            </View>
+
+            <View style={styles.trackSearchField}>
+              <Text style={styles.trackSearchLabel}>Track Number</Text>
+              <TextInput
+                value={trackSearch.trackNumber}
+                onChangeText={(value) => setTrackSearch((prev) => ({ ...prev, trackNumber: value }))}
+                placeholder="Track Number"
+                placeholderTextColor="#999999"
+                style={styles.trackSearchInput}
+              />
+            </View>
+
+            <TouchableOpacity
+              style={styles.trackSearchButton}
+              onPress={handleTrackSearch}
+              disabled={trackSearchLoading}
+            >
+              {trackSearchLoading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.trackSearchButtonText}>Search</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -1182,6 +1480,103 @@ const styles = StyleSheet.create({
     padding: 10,
     borderWidth: 1,
     borderColor: '#FFD100',
+  },
+  menuToggleButton: {
+    position: 'absolute',
+    top: 70,
+    left: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    borderRadius: 18,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#FF7A00',
+  },
+  mapMenu: {
+    position: 'absolute',
+    top: 110,
+    left: 20,
+    width: 220,
+    backgroundColor: '#F2F2F2',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  mapMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+    gap: 8,
+  },
+  mapMenuText: {
+    fontSize: 12,
+    color: '#333333',
+    flex: 1,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  trackSearchCard: {
+    width: '90%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  trackSearchHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  trackSearchTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#333333',
+  },
+  trackSearchField: {
+    marginBottom: 8,
+  },
+  trackSearchLabel: {
+    fontSize: 11,
+    color: '#666666',
+    marginBottom: 4,
+  },
+  trackSearchInput: {
+    borderWidth: 1,
+    borderColor: '#DDDDDD',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 12,
+    color: '#333333',
+    backgroundColor: '#FAFAFA',
+  },
+  trackSearchButton: {
+    marginTop: 6,
+    backgroundColor: '#FF7A00',
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  trackSearchButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
   },
   authorityInfo: {
     position: 'absolute',

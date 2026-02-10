@@ -188,6 +188,127 @@ exports.interpolateMilepost = async (req, res) => {
   }
 };
 
+/**
+ * Track location search
+ * POST /tracks/location-search
+ * Body: { subdivisionId, milepost, ls?, trackType?, trackNumber? }
+ */
+exports.searchTrackLocation = async (req, res) => {
+  try {
+    const { subdivisionId, milepost, ls, trackType, trackNumber } = req.body;
+
+    if (!subdivisionId || milepost === undefined || milepost === null) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameters: subdivisionId, milepost',
+      });
+    }
+
+    const mpValue = parseFloat(milepost);
+    if (Number.isNaN(mpValue)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid milepost value',
+      });
+    }
+
+    const flagsResult = await new db.Request().query(`
+      SELECT 
+        COL_LENGTH('Milepost_Geometry', 'Track_Type') AS HasTrackType,
+        COL_LENGTH('Milepost_Geometry', 'Track_Number') AS HasTrackNumber,
+        COL_LENGTH('Milepost_Geometry', 'Is_Active') AS HasIsActive
+    `);
+
+    const flags = flagsResult.recordset[0] || {};
+    const hasTrackType = flags.HasTrackType !== null;
+    const hasTrackNumber = flags.HasTrackNumber !== null;
+    const hasIsActive = flags.HasIsActive !== null;
+
+    const mpRequest = new db.Request()
+      .input('Subdivision_ID', db.Int, subdivisionId)
+      .input('Milepost', sql.Float, mpValue)
+      .input('Track_Type', db.VarChar, trackType || null)
+      .input('Track_Number', db.VarChar, trackNumber || null);
+
+    const trackTypeFilter = hasTrackType ? 'AND (@Track_Type IS NULL OR mg.Track_Type = @Track_Type)' : '';
+    const trackNumberFilter = hasTrackNumber ? 'AND (@Track_Number IS NULL OR mg.Track_Number = @Track_Number)' : '';
+    const activeFilter = hasIsActive ? 'AND mg.Is_Active = 1' : '';
+
+    const mpResult = await mpRequest.query(`
+      SELECT TOP 1
+        mg.MP,
+        mg.Latitude,
+        mg.Longitude
+        ${hasTrackType ? ', mg.Track_Type' : ''}
+        ${hasTrackNumber ? ', mg.Track_Number' : ''}
+      FROM Milepost_Geometry mg
+      WHERE mg.Subdivision_ID = @Subdivision_ID
+        AND mg.Latitude IS NOT NULL
+        AND mg.Longitude IS NOT NULL
+        ${activeFilter}
+        ${trackTypeFilter}
+        ${trackNumberFilter}
+      ORDER BY ABS(mg.MP - @Milepost)
+    `);
+
+    if (!mpResult.recordset.length) {
+      return res.status(404).json({
+        success: false,
+        error: 'No milepost geometry found for the specified criteria',
+      });
+    }
+
+    const milepostRow = mpResult.recordset[0];
+
+    const trackRequest = new db.Request()
+      .input('Subdivision_ID', db.Int, subdivisionId)
+      .input('LS', db.VarChar, ls || null)
+      .input('Track_Type', db.VarChar, trackType || null)
+      .input('Track_Number', db.VarChar, trackNumber || null)
+      .input('Milepost', sql.Float, mpValue);
+
+    const trackResult = await trackRequest.query(`
+      SELECT TOP 1
+        Track_ID,
+        LS,
+        Track_Type,
+        Track_Number,
+        BMP,
+        EMP,
+        Asset_Name
+      FROM Tracks
+      WHERE Subdivision_ID = @Subdivision_ID
+        AND (@LS IS NULL OR LS = @LS)
+        AND (@Track_Type IS NULL OR Track_Type = @Track_Type)
+        AND (@Track_Number IS NULL OR Track_Number = @Track_Number)
+        AND (
+          BMP IS NULL OR EMP IS NULL OR
+          @Milepost BETWEEN BMP AND EMP
+        )
+      ORDER BY ABS(@Milepost - (ISNULL(BMP, @Milepost) + ISNULL(EMP, @Milepost)) / 2.0)
+    `);
+
+    const trackRow = trackResult.recordset[0] || null;
+
+    res.json({
+      success: true,
+      data: {
+        subdivisionId,
+        lineSegment: trackRow?.LS || ls || null,
+        milepost: parseFloat(milepostRow.MP),
+        latitude: parseFloat(milepostRow.Latitude),
+        longitude: parseFloat(milepostRow.Longitude),
+        trackType: milepostRow.Track_Type || trackType || trackRow?.Track_Type || null,
+        trackNumber: milepostRow.Track_Number || trackNumber || trackRow?.Track_Number || null,
+        track: trackRow,
+      },
+    });
+  } catch (error) {
+    console.error('Track location search error:', error);
+    res.status(500).json({ success: false, error: 'Failed to search track location' });
+  }
+};
+
 // Helper functions
 function findClosestMilepost(lat, lon, mileposts) {
   let closest = null;
